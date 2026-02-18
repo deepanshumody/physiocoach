@@ -532,6 +532,25 @@ async def _on_exercise_frame(parsed: dict):
         _broadcast_json({"type": "rep_counted", "total_reps": update["total_reps"]})
 
 
+async def gpu_monitor_loop():
+    """Background task to periodically collect and broadcast GPU stats"""
+    global gpu_monitor
+
+    if not gpu_monitor:
+        return
+
+    try:
+        while True:
+            stats = gpu_monitor.get_stats()
+            if stats:
+                broadcast_gpu_stats(stats)
+            await asyncio.sleep(0.25)
+    except asyncio.CancelledError:
+        logger.info("GPU monitoring loop cancelled")
+    except Exception as e:
+        logger.error(f"Error in GPU monitoring loop: {e}")
+
+
 async def offer_viewer(request):
     """Create a new peer connection that streams the other camera's feed to this viewer."""
     params = await request.json()
