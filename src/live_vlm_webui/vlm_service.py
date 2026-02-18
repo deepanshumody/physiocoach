@@ -108,7 +108,12 @@ class VLMService:
 
             # Convert PIL Image to base64
             img_byte_arr = io.BytesIO()
-            image.save(img_byte_arr, format="JPEG")
+            # Resize to 720p width for better VLM understanding (maintains aspect ratio)
+            w, h = image.size
+            if w < 720:
+                scale = 720 / w
+                image = image.resize((720, int(h * scale)), Image.LANCZOS)
+            image.save(img_byte_arr, format="JPEG", quality=85)
             img_byte_arr = img_byte_arr.getvalue()
             img_base64 = base64.b64encode(img_byte_arr).decode("utf-8")
 
