@@ -727,7 +727,13 @@ function connectWebSocket() {
 }
 
 function handleMessage(data) {
-    if (data.type === 'exercise_update') {
+    if (data.type === 'pose_update') {
+        if (typeof data.total_reps === 'number') updateRepCount(data.total_reps);
+        if (data.rep_completed && voiceEnabled) {
+            const now = Date.now();
+            if (now - lastSpokenTime > 1500) { speak(`${data.total_reps}`); lastSpokenTime = now; }
+        }
+    } else if (data.type === 'exercise_update') {
         updateExerciseUI(data);
     } else if (data.type === 'rep_counted') {
         updateRepCount(data.total_reps);

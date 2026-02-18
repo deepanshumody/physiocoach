@@ -58,6 +58,7 @@ gpu_monitor_task = None  # Background task for GPU monitoring
 rtsp_tracks = {}  # Track active RTSP streams {session_id: (rtsp_track, processor_track)}
 session_manager: SessionManager = None  # PT session tracking
 active_exercise_id: str = None  # Currently selected exercise
+active_processor_tracks: set = set()  # Track active VideoProcessorTrack instances for pose config
 
 
 def is_port_available(port, host="0.0.0.0"):
@@ -384,6 +385,14 @@ async def websocket_handler(request):
                                 active_exercise_id = exercise_id
                                 vlm_service.set_exercise_mode(ex.build_vlm_prompt(), callback=_on_exercise_frame)
                                 VideoProcessorTrack._coaching_active = True
+                                # Configure MediaPipe pose rep counting
+                                if ex.primary_joint:
+                                    for pt in active_processor_tracks:
+                                        if pt.pose_detector.available:
+                                            pt.pose_detector.configure_exercise(
+                                                ex.primary_joint, ex.rep_down_threshold, ex.rep_up_threshold
+                                            )
+                                    logger.info(f"Pose rep counting configured: joint={ex.primary_joint}")
                                 sid = await session_manager.start_session(exercise_id)
                                 await ws.send_json({"type": "session_started", "session_id": sid, "exercise": ex.to_dict()})
                                 logger.info(f"Exercise session {sid} started: {ex.name}")
@@ -399,6 +408,15 @@ async def websocket_handler(request):
                     elif data.get("type") == "end_exercise_session":
                         VideoProcessorTrack._coaching_active = False
                         vlm_service.clear_exercise_mode()
+                        # Grab pose rep count before clearing
+                        pose_reps = 0
+                        for pt in active_processor_tracks:
+                            if pt.pose_detector.available:
+                                pose_reps = max(pose_reps, pt.pose_detector.reps)
+                                pt.pose_detector.clear_exercise()
+                        # Use pose rep count as authoritative if available
+                        if pose_reps > 0 and session_manager._rep_counter:
+                            session_manager._rep_counter.reps = pose_reps
                         summary = await session_manager.end_session()
                         if summary:
                             _broadcast_json({"type": "session_summary", **summary})
@@ -500,8 +518,28 @@ async def _on_exercise_frame(parsed: dict):
 
     update = await session_manager.record_frame(parsed)
     _broadcast_json({"type": "exercise_update", **update})
-    if update.get("rep_completed"):
-        _broadcast_json({"type": "rep_counted", "total_reps": update["total_reps"]})
+
+
+def _on_pose_frame(pose_result: dict):
+    """Callback from MediaPipe pose detector -- runs synchronously on every few frames."""
+    if not pose_result.get("pose_detected"):
+        return
+
+    rep_completed = pose_result.get("rep_completed", False)
+    total_reps = pose_result.get("total_reps", 0)
+    angle = pose_result.get("angle")
+
+    _broadcast_json({
+        "type": "pose_update",
+        "angle": angle,
+        "total_reps": total_reps,
+        "rep_completed": rep_completed,
+    })
+
+    if rep_completed:
+        _broadcast_json({"type": "rep_counted", "total_reps": total_reps})
+        if session_manager and session_manager.active:
+            session_manager._rep_counter_override = total_reps
 
 
 async def gpu_monitor_loop():
@@ -590,8 +628,11 @@ async def offer(request):
             relayed_rtsp = relay.subscribe(rtsp_track)
 
             processor_track = VideoProcessorTrack(
-                relayed_rtsp, vlm_service, text_callback=broadcast_text_update
+                relayed_rtsp, vlm_service,
+                text_callback=broadcast_text_update,
+                pose_callback=_on_pose_frame,
             )
+            active_processor_tracks.add(processor_track)
 
             # Add processor directly to peer connection
             pc.addTrack(processor_track)
@@ -611,12 +652,13 @@ async def offer(request):
             logger.info(f"Received track: {track.kind}")
 
             if track.kind == "video":
-                # Create processor track with VLM service and text callback
                 processor_track = VideoProcessorTrack(
-                    relay.subscribe(track), vlm_service, text_callback=broadcast_text_update
+                    relay.subscribe(track), vlm_service,
+                    text_callback=broadcast_text_update,
+                    pose_callback=_on_pose_frame,
                 )
+                active_processor_tracks.add(processor_track)
 
-                # Add processed track back to connection
                 pc.addTrack(processor_track)
                 logger.info("Added processed video track back to peer connection")
 
@@ -681,7 +723,9 @@ async def rtsp_start(request):
 
         # Create processor track (same as WebRTC path)
         processor_track = VideoProcessorTrack(
-            rtsp_track, vlm_service, text_callback=broadcast_text_update
+            rtsp_track, vlm_service,
+            text_callback=broadcast_text_update,
+            pose_callback=_on_pose_frame,
         )
 
         # Start background task to consume frames

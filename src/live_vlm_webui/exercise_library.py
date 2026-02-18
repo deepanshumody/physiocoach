@@ -18,6 +18,11 @@ class Exercise:
     phases: list[str]
     rep_start_phase: str
     rep_end_phase: str
+    # MediaPipe joint angle tracking for rep counting
+    # Tuple of (landmark_a, landmark_b, landmark_c) -- angle measured at b
+    primary_joint: Optional[tuple[str, str, str]] = None
+    rep_down_threshold: float = 90.0   # angle below this = "down" position
+    rep_up_threshold: float = 150.0    # angle above this = "up" position
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -61,6 +66,9 @@ EXERCISES: list[Exercise] = [
         phases=["standing", "descending", "bottom", "ascending"],
         rep_start_phase="standing",
         rep_end_phase="ascending",
+        primary_joint=("left_hip", "left_knee", "left_ankle"),
+        rep_down_threshold=100,
+        rep_up_threshold=155,
     ),
     Exercise(
         id="lunge",
@@ -78,6 +86,9 @@ EXERCISES: list[Exercise] = [
         phases=["standing", "stepping", "lowered", "returning"],
         rep_start_phase="standing",
         rep_end_phase="returning",
+        primary_joint=("left_hip", "left_knee", "left_ankle"),
+        rep_down_threshold=100,
+        rep_up_threshold=155,
     ),
     Exercise(
         id="wall_pushup",
@@ -95,6 +106,9 @@ EXERCISES: list[Exercise] = [
         phases=["extended", "lowering", "chest_near_wall", "pushing_back"],
         rep_start_phase="extended",
         rep_end_phase="pushing_back",
+        primary_joint=("left_shoulder", "left_elbow", "left_wrist"),
+        rep_down_threshold=100,
+        rep_up_threshold=155,
     ),
     Exercise(
         id="shoulder_raise",
@@ -112,6 +126,9 @@ EXERCISES: list[Exercise] = [
         phases=["arms_down", "raising", "arms_up", "lowering"],
         rep_start_phase="arms_down",
         rep_end_phase="lowering",
+        primary_joint=("left_hip", "left_shoulder", "left_wrist"),
+        rep_down_threshold=30,
+        rep_up_threshold=70,
     ),
     Exercise(
         id="calf_raise",
@@ -129,6 +146,9 @@ EXERCISES: list[Exercise] = [
         phases=["flat", "rising", "top", "lowering"],
         rep_start_phase="flat",
         rep_end_phase="lowering",
+        primary_joint=("left_hip", "left_knee", "left_ankle"),
+        rep_down_threshold=160,
+        rep_up_threshold=172,
     ),
     Exercise(
         id="seated_knee_ext",
@@ -146,6 +166,9 @@ EXERCISES: list[Exercise] = [
         phases=["knee_bent", "extending", "fully_extended", "lowering"],
         rep_start_phase="knee_bent",
         rep_end_phase="lowering",
+        primary_joint=("left_hip", "left_knee", "left_ankle"),
+        rep_down_threshold=100,
+        rep_up_threshold=155,
     ),
     Exercise(
         id="leg_raise",
@@ -163,6 +186,9 @@ EXERCISES: list[Exercise] = [
         phases=["legs_together", "raising", "top", "lowering"],
         rep_start_phase="legs_together",
         rep_end_phase="lowering",
+        primary_joint=("left_shoulder", "left_hip", "left_ankle"),
+        rep_down_threshold=155,
+        rep_up_threshold=170,
     ),
     Exercise(
         id="hip_abduction",
@@ -180,6 +206,9 @@ EXERCISES: list[Exercise] = [
         phases=["legs_together", "lifting", "leg_out", "returning"],
         rep_start_phase="legs_together",
         rep_end_phase="returning",
+        primary_joint=("left_shoulder", "left_hip", "left_ankle"),
+        rep_down_threshold=155,
+        rep_up_threshold=170,
     ),
     Exercise(
         id="bicep_curl",
@@ -197,6 +226,9 @@ EXERCISES: list[Exercise] = [
         phases=["arms_extended", "curling", "top", "lowering"],
         rep_start_phase="arms_extended",
         rep_end_phase="lowering",
+        primary_joint=("left_shoulder", "left_elbow", "left_wrist"),
+        rep_down_threshold=50,
+        rep_up_threshold=140,
     ),
     Exercise(
         id="neck_rotation",
