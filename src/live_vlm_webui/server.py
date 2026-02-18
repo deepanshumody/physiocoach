@@ -63,9 +63,30 @@ active_exercise_id: str = None  # Currently selected exercise
 active_processor_tracks: set = set()  # Track active VideoProcessorTrack instances for pose config
 
 DEFAULT_COACHING_PROMPT = (
-    "You are a PT coach. Look at this exercise image and give ONE short correction or encouragement. "
-    "Name the exercise if you can tell. Max 2 sentences. No lists, no markdown. Example: "
-    "\"Nice squat depth! Try to keep your chest up more.\""
+    "You are an expert physical therapy coach analyzing a live exercise video frame.\n\n"
+    "STEP 1 — IDENTIFY: Look carefully at the person's body position and movement. "
+    "What exercise are they doing? If you cannot clearly identify an exercise (e.g. they are sitting, standing still, or the view is unclear), "
+    "respond ONLY with: 'Get into position to begin your exercise.'\n\n"
+    "STEP 2 — EVALUATE: If you identified an exercise, give ONE specific, actionable correction or encouragement about their form. "
+    "Focus on the most important thing you can see wrong or right.\n\n"
+    "Rules: Max 2 short sentences total. No lists. No markdown. No explanations. "
+    "Do not repeat the exercise name. Do not make up observations if the image is unclear."
+)
+
+FRONT_CAMERA_PROMPT = (
+    "You are an expert PT coach watching the FRONT view of someone exercising.\n\n"
+    "IDENTIFY the exercise from the front view. If unclear, say: 'Step in front of the camera to begin.'\n\n"
+    "If identified, give ONE correction about what you can see from the front: "
+    "symmetry (are both sides even?), alignment (knees tracking over toes?), shoulder position, hip level, or rep completion. "
+    "Max 2 short sentences. No lists. No markdown. Be specific and direct."
+)
+
+SIDE_CAMERA_PROMPT = (
+    "You are an expert PT coach watching the SIDE view of someone exercising.\n\n"
+    "IDENTIFY the exercise from the side view. If unclear, say: 'Position yourself sideways to the camera.'\n\n"
+    "If identified, give ONE correction about what you can see from the side: "
+    "spine angle, forward lean, knee bend depth, hip hinge, elbow angle, or posture. "
+    "Max 2 short sentences. No lists. No markdown. Be specific about the angle or depth you observe."
 )
 
 # Multi-camera support: track how many cameras are connected (max 2)
@@ -406,9 +427,18 @@ async def websocket_handler(request):
                         active_exercise_id = exercise_id
                         ex = get_exercise(exercise_id)
 
-                        # Set conversational coaching prompt on VLM
+                        # Set coaching prompts — per-camera if dual camera, else default
                         vlm_service.set_coaching_prompt(DEFAULT_COACHING_PROMPT)
                         VideoProcessorTrack._coaching_active = True
+
+                        # Assign per-camera prompts based on connected slots
+                        for pt in active_processor_tracks:
+                            cam_id = getattr(pt, 'camera_id', 1)
+                            if len(camera_slots) >= 2:
+                                # Dual camera mode: front vs side prompts
+                                pt.coaching_prompt = FRONT_CAMERA_PROMPT if cam_id == 1 else SIDE_CAMERA_PROMPT
+                            else:
+                                pt.coaching_prompt = DEFAULT_COACHING_PROMPT
 
                         # Configure MediaPipe rep counting if a specific exercise is selected
                         if ex and ex.primary_joint:

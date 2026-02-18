@@ -214,7 +214,7 @@ class VLMService:
     async def process_frame(self, image: Image.Image, prompt: Optional[str] = None) -> None:
         """
         Process a frame asynchronously. Updates self.current_response when done.
-        In coaching mode, uses the coaching prompt.
+        In coaching mode, uses per-track prompt if provided, else coaching prompt.
         If already processing, this call is skipped.
         """
         if self._processing_lock.locked():
@@ -224,11 +224,20 @@ class VLMService:
         async with self._processing_lock:
             self.is_processing = True
             try:
-                effective_prompt = prompt
-                if self._coaching_active and self._coaching_prompt:
+                if prompt:
+                    # Per-track prompt (front/side camera specific)
+                    effective_prompt = prompt
+                elif self._coaching_active and self._coaching_prompt:
                     effective_prompt = self._coaching_prompt
+                else:
+                    effective_prompt = None
 
+                # Use more tokens for coaching to get complete sentences
+                saved_tokens = self.max_tokens
+                if self._coaching_active:
+                    self.max_tokens = 120
                 response = await self.analyze_image(image, effective_prompt)
+                self.max_tokens = saved_tokens
                 self.current_response = response
             finally:
                 self.is_processing = False
