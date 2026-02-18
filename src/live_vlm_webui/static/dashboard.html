@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RehabCoach - Progress Dashboard</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon/favicon.svg">
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        :root {
+            --primary: #0e7c6b;
+            --primary-light: #12a68e;
+            --bg: #f0f4f8;
+            --surface: #ffffff;
+            --text: #1e293b;
+            --text-muted: #64748b;
+            --radius: 12px;
+            --shadow: 0 2px 8px rgba(0,0,0,0.08);
+        }
+        body {
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+        }
+        header {
+            background: linear-gradient(135deg, #095e52, var(--primary));
+            color: white;
+            padding: 0 24px;
+            height: 56px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            box-shadow: var(--shadow);
+        }
+        .logo { font-size: 1.25rem; font-weight: 700; display: flex; align-items: center; gap: 8px; }
+        .logo svg { width: 24px; height: 24px; }
+        header a { color: white; text-decoration: none; font-size: 0.85rem; opacity: 0.85; }
+        header a:hover { opacity: 1; }
+
+        .container { max-width: 1100px; margin: 0 auto; padding: 24px; }
+
+        .stats-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 24px; }
+        .stat-card {
+            background: var(--surface);
+            border-radius: var(--radius);
+            padding: 20px;
+            box-shadow: var(--shadow);
+            text-align: center;
+        }
+        .stat-card .value { font-size: 2rem; font-weight: 800; color: var(--primary); }
+        .stat-card .label { font-size: 0.8rem; color: var(--text-muted); margin-top: 4px; text-transform: uppercase; letter-spacing: 0.5px; }
+
+        .card {
+            background: var(--surface);
+            border-radius: var(--radius);
+            padding: 20px;
+            box-shadow: var(--shadow);
+            margin-bottom: 24px;
+        }
+        .card h2 { font-size: 1rem; margin-bottom: 16px; display: flex; align-items: center; gap: 8px; }
+        .card h2 svg { width: 20px; height: 20px; color: var(--primary); }
+
+        .charts-row { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 24px; }
+        @media (max-width: 800px) { .charts-row { grid-template-columns: 1fr; } }
+        .chart-container { position: relative; height: 260px; }
+
+        table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+        thead th {
+            text-align: left;
+            padding: 10px 12px;
+            border-bottom: 2px solid #e2e8f0;
+            color: var(--text-muted);
+            font-weight: 600;
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        tbody td { padding: 10px 12px; border-bottom: 1px solid #f1f5f9; }
+        tbody tr:hover { background: #f8fafc; }
+
+        .badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 999px;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+        .badge-good { background: #dcfce7; color: #166534; }
+        .badge-ok { background: #fef9c3; color: #854d0e; }
+        .badge-poor { background: #fee2e2; color: #991b1b; }
+
+        .empty-state { text-align: center; padding: 48px; color: var(--text-muted); }
+        .empty-state svg { width: 48px; height: 48px; margin-bottom: 12px; opacity: 0.4; }
+
+        .filter-row { display: flex; gap: 12px; margin-bottom: 16px; align-items: center; }
+        .filter-row select {
+            padding: 6px 12px;
+            border: 1px solid #cbd5e1;
+            border-radius: 8px;
+            font-size: 0.85rem;
+        }
+    </style>
+</head>
+<body>
+<header>
+    <div class="logo"><i data-lucide="heart-pulse"></i> RehabCoach</div>
+    <a href="/">Back to Coach</a>
+</header>
+
+<div class="container">
+    <!-- Summary Stats -->
+    <div class="stats-row" id="statsRow">
+        <div class="stat-card"><div class="value" id="totalSessions">0</div><div class="label">Sessions</div></div>
+        <div class="stat-card"><div class="value" id="totalReps">0</div><div class="label">Total Reps</div></div>
+        <div class="stat-card"><div class="value" id="avgScore">-</div><div class="label">Avg Form Score</div></div>
+        <div class="stat-card"><div class="value" id="exerciseCount">0</div><div class="label">Exercises Used</div></div>
+    </div>
+
+    <!-- Charts -->
+    <div class="charts-row">
+        <div class="card">
+            <h2><i data-lucide="trending-up"></i> Reps Over Time</h2>
+            <div class="chart-container"><canvas id="repsChart"></canvas></div>
+        </div>
+        <div class="card">
+            <h2><i data-lucide="activity"></i> Form Score Trend</h2>
+            <div class="chart-container"><canvas id="scoreChart"></canvas></div>
+        </div>
+    </div>
+
+    <!-- Session History -->
+    <div class="card">
+        <h2><i data-lucide="clock"></i> Session History</h2>
+        <div class="filter-row">
+            <select id="filterExercise">
+                <option value="">All Exercises</option>
+            </select>
+        </div>
+        <div id="tableContainer">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>Exercise</th>
+                        <th>Reps</th>
+                        <th>Form Score</th>
+                        <th>Duration</th>
+                    </tr>
+                </thead>
+                <tbody id="sessionTableBody">
+                </tbody>
+            </table>
+        </div>
+        <div class="empty-state" id="emptyState" style="display:none;">
+            <i data-lucide="inbox"></i>
+            <p>No sessions yet. Start exercising to see your progress!</p>
+        </div>
+    </div>
+</div>
+
+<script>
+let allSessions = [];
+let allExercises = [];
+let repsChartInstance = null;
+let scoreChartInstance = null;
+
+document.addEventListener('DOMContentLoaded', async () => {
+    lucide.createIcons();
+    await Promise.all([loadExercises(), loadProgress()]);
+    await loadSessions();
+    document.getElementById('filterExercise').addEventListener('change', renderTable);
+});
+
+async function loadExercises() {
+    try {
+        const res = await fetch('/api/exercises');
+        const data = await res.json();
+        allExercises = data.exercises || [];
+        const sel = document.getElementById('filterExercise');
+        allExercises.forEach(ex => {
+            const opt = document.createElement('option');
+            opt.value = ex.id;
+            opt.textContent = ex.name;
+            sel.appendChild(opt);
+        });
+    } catch {}
+}
+
+async function loadSessions() {
+    try {
+        const res = await fetch('/api/sessions?limit=200');
+        const data = await res.json();
+        allSessions = data.sessions || [];
+        renderTable();
+    } catch {}
+}
+
+async function loadProgress() {
+    try {
+        const res = await fetch('/api/progress');
+        const data = await res.json();
+
+        document.getElementById('totalSessions').textContent = data.total_sessions || 0;
+
+        const byEx = data.by_exercise || {};
+        const exerciseIds = Object.keys(byEx);
+        document.getElementById('exerciseCount').textContent = exerciseIds.length;
+
+        let totalReps = 0, totalScore = 0, scoreCount = 0;
+        for (const eid of exerciseIds) {
+            totalReps += byEx[eid].total_reps || 0;
+            if (byEx[eid].avg_form_score > 0) {
+                totalScore += byEx[eid].avg_form_score;
+                scoreCount++;
+            }
+        }
+        document.getElementById('totalReps').textContent = totalReps;
+        document.getElementById('avgScore').textContent = scoreCount > 0 ? (totalScore / scoreCount).toFixed(1) : '-';
+
+        buildCharts(data);
+    } catch (e) {
+        console.error('Failed to load progress', e);
+    }
+}
+
+function buildCharts(progress) {
+    const byEx = progress.by_exercise || {};
+
+    // Collect all sessions sorted by time
+    let allChartSessions = [];
+    for (const [eid, info] of Object.entries(byEx)) {
+        (info.sessions || []).forEach(s => {
+            allChartSessions.push({ ...s, exercise_id: eid });
+        });
+    }
+    allChartSessions.sort((a, b) => new Date(a.start_time) - new Date(b.start_time));
+
+    if (allChartSessions.length === 0) return;
+
+    const labels = allChartSessions.map(s => {
+        const d = new Date(s.start_time);
+        return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+    });
+
+    // Reps chart
+    const repsCtx = document.getElementById('repsChart').getContext('2d');
+    repsChartInstance = new Chart(repsCtx, {
+        type: 'bar',
+        data: {
+            labels,
+            datasets: [{
+                label: 'Reps',
+                data: allChartSessions.map(s => s.total_reps),
+                backgroundColor: 'rgba(14, 124, 107, 0.7)',
+                borderRadius: 6,
+            }]
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } }
+        }
+    });
+
+    // Score chart
+    const scoreCtx = document.getElementById('scoreChart').getContext('2d');
+    scoreChartInstance = new Chart(scoreCtx, {
+        type: 'line',
+        data: {
+            labels,
+            datasets: [{
+                label: 'Avg Form Score',
+                data: allChartSessions.map(s => s.avg_form_score),
+                borderColor: '#0e7c6b',
+                backgroundColor: 'rgba(14, 124, 107, 0.1)',
+                fill: true,
+                tension: 0.3,
+                pointRadius: 4,
+                pointBackgroundColor: '#0e7c6b',
+            }]
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            scales: { y: { min: 0, max: 10 } }
+        }
+    });
+}
+
+function renderTable() {
+    const filter = document.getElementById('filterExercise').value;
+    let sessions = allSessions;
+    if (filter) sessions = sessions.filter(s => s.exercise_id === filter);
+
+    const tbody = document.getElementById('sessionTableBody');
+    const empty = document.getElementById('emptyState');
+
+    if (sessions.length === 0) {
+        tbody.innerHTML = '';
+        empty.style.display = 'block';
+        return;
+    }
+    empty.style.display = 'none';
+
+    tbody.innerHTML = sessions.map(s => {
+        const date = new Date(s.start_time);
+        const dateStr = date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+        const timeStr = date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+        const ex = allExercises.find(e => e.id === s.exercise_id);
+        const name = ex ? ex.name : s.exercise_id;
+        const score = s.avg_form_score || 0;
+        const badgeClass = score >= 7 ? 'badge-good' : score >= 4 ? 'badge-ok' : 'badge-poor';
+        let duration = '-';
+        if (s.start_time && s.end_time) {
+            const secs = Math.round((new Date(s.end_time) - new Date(s.start_time)) / 1000);
+            const m = Math.floor(secs / 60);
+            const sec = secs % 60;
+            duration = `${m}m ${sec}s`;
+        }
+        return `<tr>
+            <td>${dateStr} ${timeStr}</td>
+            <td>${escapeHtml(name)}</td>
+            <td>${s.total_reps}</td>
+            <td><span class="badge ${badgeClass}">${score > 0 ? score.toFixed(1) : '-'}</span></td>
+            <td>${duration}</td>
+        </tr>`;
+    }).join('');
+}
+
+function escapeHtml(str) {
+    const d = document.createElement('div');
+    d.textContent = str;
+    return d.innerHTML;
+}
+</script>
+</body>
+</html>

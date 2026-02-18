@@ -35,10 +35,12 @@ from aiortc import (
 )
 from aiortc.contrib.media import MediaRelay
 
-from .vlm_service import VLMService
+from .vlm_service import VLMService, parse_json_response
 from .video_processor import VideoProcessorTrack
 from .gpu_monitor import create_monitor
 from .rtsp_track import RTSPVideoTrack
+from .exercise_library import get_exercise, get_all_exercises, EXERCISE_MAP
+from .session_manager import SessionManager
 
 # Configure logging
 logging.basicConfig(
@@ -54,6 +56,8 @@ websockets = set()  # Track active WebSocket connections
 gpu_monitor = None  # GPU monitoring instance
 gpu_monitor_task = None  # Background task for GPU monitoring
 rtsp_tracks = {}  # Track active RTSP streams {session_id: (rtsp_track, processor_track)}
+session_manager: SessionManager = None  # PT session tracking
+active_exercise_id: str = None  # Currently selected exercise
 
 # Multi-camera support: track how many cameras are connected (max 2)
 # camera_slots = {1: pc, 2: pc}  maps slot number → peer connection
@@ -368,6 +372,49 @@ async def websocket_handler(request):
                         except ValueError:
                             logger.error(f"Invalid processing interval: {process_every}")
 
+                    elif data.get("type") == "select_exercise":
+                        exercise_id = data.get("exercise_id", "")
+                        global active_exercise_id
+                        ex = get_exercise(exercise_id)
+                        if ex:
+                            active_exercise_id = exercise_id
+                            vlm_service.set_exercise_mode(ex.build_vlm_prompt(), callback=_on_exercise_frame)
+                            await ws.send_json({"type": "exercise_selected", "exercise": ex.to_dict()})
+                            logger.info(f"Exercise selected: {ex.name}")
+                        else:
+                            await ws.send_json({"type": "error", "message": f"Unknown exercise: {exercise_id}"})
+
+                    elif data.get("type") == "start_exercise_session":
+                        exercise_id = data.get("exercise_id") or active_exercise_id
+                        if not exercise_id:
+                            await ws.send_json({"type": "error", "message": "No exercise selected"})
+                        else:
+                            ex = get_exercise(exercise_id)
+                            if ex:
+                                active_exercise_id = exercise_id
+                                vlm_service.set_exercise_mode(ex.build_vlm_prompt(), callback=_on_exercise_frame)
+                                VideoProcessorTrack._coaching_active = True
+                                sid = await session_manager.start_session(exercise_id)
+                                await ws.send_json({"type": "session_started", "session_id": sid, "exercise": ex.to_dict()})
+                                logger.info(f"Exercise session {sid} started: {ex.name}")
+
+                    elif data.get("type") == "pause_session":
+                        session_manager.pause_session()
+                        await ws.send_json({"type": "session_paused"})
+
+                    elif data.get("type") == "resume_session":
+                        session_manager.resume_session()
+                        await ws.send_json({"type": "session_resumed"})
+
+                    elif data.get("type") == "end_exercise_session":
+                        VideoProcessorTrack._coaching_active = False
+                        vlm_service.clear_exercise_mode()
+                        summary = await session_manager.end_session()
+                        if summary:
+                            _broadcast_json({"type": "session_summary", **summary})
+                            logger.info(f"Session ended: {summary.get('total_reps')} reps")
+                        await ws.send_json({"type": "session_ended", "summary": summary})
+
                     elif data.get("type") == "update_max_latency":
                         max_latency = data.get("max_latency", 0.0)
                         try:
@@ -455,6 +502,18 @@ def _broadcast_json(data: dict):
         except Exception:
             dead.add(ws)
     websockets.difference_update(dead)
+
+
+async def _on_exercise_frame(parsed: dict):
+    """Callback invoked by VLMService when a coaching-mode frame is analysed."""
+    if not session_manager or not session_manager.active:
+        _broadcast_json({"type": "exercise_update", **parsed})
+        return
+
+    update = await session_manager.record_frame(parsed)
+    _broadcast_json({"type": "exercise_update", **update})
+    if update.get("rep_completed"):
+        _broadcast_json({"type": "rep_counted", "total_reps": update["total_reps"]})
 
 
 async def gpu_monitor_loop():
@@ -819,6 +878,49 @@ async def rtsp_status(request):
         )
 
 
+async def dashboard(request):
+    """Serve the progress dashboard page"""
+    content = open(
+        os.path.join(os.path.dirname(__file__), "static", "dashboard.html"), "r"
+    ).read()
+    return web.Response(content_type="text/html", text=content)
+
+
+async def api_exercises(request):
+    """Return the full exercise library"""
+    return web.Response(
+        content_type="application/json",
+        text=json.dumps({"exercises": get_all_exercises()}),
+    )
+
+
+async def api_sessions(request):
+    """Return session history"""
+    limit = int(request.rel_url.query.get("limit", "50"))
+    offset = int(request.rel_url.query.get("offset", "0"))
+    sessions = await session_manager.get_sessions(limit, offset)
+    return web.Response(
+        content_type="application/json",
+        text=json.dumps({"sessions": sessions}),
+    )
+
+
+async def api_session_detail(request):
+    """Return detail for a single session"""
+    session_id = int(request.match_info["id"])
+    detail = await session_manager.get_session_detail(session_id)
+    if not detail:
+        return web.Response(status=404, text=json.dumps({"error": "not found"}))
+    return web.Response(content_type="application/json", text=json.dumps(detail))
+
+
+async def api_progress(request):
+    """Return progress data for charts"""
+    exercise_id = request.rel_url.query.get("exercise_id")
+    progress = await session_manager.get_progress(exercise_id)
+    return web.Response(content_type="application/json", text=json.dumps(progress))
+
+
 async def _stop_rtsp_session(session_id: str):
     """Helper function to stop an RTSP session"""
     if session_id in rtsp_tracks:
@@ -852,7 +954,11 @@ async def _stop_rtsp_session(session_id: str):
 
 async def on_startup(app):
     """Initialize resources on server startup"""
-    global gpu_monitor, gpu_monitor_task
+    global gpu_monitor, gpu_monitor_task, session_manager
+
+    # Initialize PT session manager
+    session_manager = SessionManager()
+    await session_manager.initialize()
 
     # Initialize GPU monitor
     try:
@@ -887,6 +993,11 @@ async def on_shutdown(app):
     if gpu_monitor:
         gpu_monitor.cleanup()
         logger.info("GPU monitor cleaned up")
+
+    # Close session manager
+    if session_manager:
+        await session_manager.close()
+        logger.info("Session manager closed")
 
     # Close all websockets
     for ws in list(websockets):
@@ -925,6 +1036,15 @@ async def create_app(test_mode=False):
     app.router.add_get("/ws", websocket_handler)
     app.router.add_post("/offer", offer)
     app.router.add_get("/api/cameras", camera_status)
+
+    # Dashboard
+    app.router.add_get("/dashboard", dashboard)
+
+    # PT Coach API endpoints
+    app.router.add_get("/api/exercises", api_exercises)
+    app.router.add_get("/api/sessions", api_sessions)
+    app.router.add_get("/api/sessions/{id}", api_session_detail)
+    app.router.add_get("/api/progress", api_progress)
 
     # RTSP endpoints
     app.router.add_post("/api/rtsp/start", rtsp_start)

@@ -45,8 +45,12 @@ class VideoProcessorTrack(VideoStreamTrack):
 
     # Class variable for frame processing interval (can be updated dynamically)
     process_every_n_frames = 30
+    # Coaching mode uses a faster interval
+    coaching_frame_interval = 15
     # Max allowed latency before dropping frames (in seconds, 0 = disabled)
     max_frame_latency = 0.0
+    # Whether we are in active coaching mode
+    _coaching_active = False
 
     def __init__(self, track: VideoStreamTrack, vlm_service: VLMService, text_callback=None):
         super().__init__()
@@ -136,7 +140,8 @@ class VideoProcessorTrack(VideoStreamTrack):
 
             # Only convert to numpy when needed (for VLM processing or first frame)
             # This avoids expensive CPU color conversion on every frame
-            interval = self.__class__.process_every_n_frames
+            cls = self.__class__
+            interval = cls.coaching_frame_interval if cls._coaching_active else cls.process_every_n_frames
             need_conversion = (self.frame_count % interval == 0) or (self.frame_count == 1)
 
             if need_conversion:
