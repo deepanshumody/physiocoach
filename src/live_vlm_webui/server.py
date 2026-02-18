@@ -746,13 +746,20 @@ async def offer(request):
                 other_track = camera_tracks.get(other_slot)
 
                 if other_pc and other_track:
-                    logger.info(f"Both cameras connected — triggering renegotiation")
-                    # Small delay to allow Camera 2's WebSocket to register
-                    async def delayed_renegotiate():
-                        await asyncio.sleep(30.0)
+                    logger.info(f"Both cameras connected — waiting for Camera {other_slot} WebSocket then renegotiating")
+                    async def wait_and_renegotiate():
+                        # Poll until the other camera's WebSocket is registered (up to 60s)
+                        for _ in range(120):
+                            if other_slot in camera_websockets:
+                                break
+                            await asyncio.sleep(0.5)
+                        else:
+                            logger.warning(f"Camera {other_slot} WebSocket never registered, skipping renegotiation")
+                            return
+                        logger.info(f"Camera {other_slot} WebSocket ready — triggering renegotiation")
                         await _renegotiate(pc, slot, relay.subscribe(other_track))
                         await _renegotiate(other_pc, other_slot, relay.subscribe(processor_track))
-                    asyncio.create_task(delayed_renegotiate())
+                    asyncio.create_task(wait_and_renegotiate())
 
             @track.on("ended")
             async def on_ended():
