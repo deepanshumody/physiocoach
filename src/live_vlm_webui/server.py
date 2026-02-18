@@ -749,7 +749,7 @@ async def offer(request):
                     logger.info(f"Both cameras connected — triggering renegotiation")
                     # Small delay to allow Camera 2's WebSocket to register
                     async def delayed_renegotiate():
-                        await asyncio.sleep(1.0)
+                        await asyncio.sleep(30.0)
                         await _renegotiate(pc, slot, relay.subscribe(other_track))
                         await _renegotiate(other_pc, other_slot, relay.subscribe(processor_track))
                     asyncio.create_task(delayed_renegotiate())
