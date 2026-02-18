@@ -1600,6 +1600,273 @@ limitations under the License.
         }
         */
 
+        /* ROM Measurement Styles */
+        .rom-panel-content {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .rom-toggle-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 8px 0;
+        }
+
+        .rom-toggle-label {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        .rom-controls {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .rom-controls label {
+            font-size: 12px;
+            color: var(--text-secondary);
+            margin-bottom: 2px;
+        }
+
+        .rom-controls select {
+            width: 100%;
+            padding: 6px 8px;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            font-size: 13px;
+        }
+
+        .rom-card {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            overflow: hidden;
+        }
+
+        .rom-card-header {
+            padding: 16px 20px;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .rom-card-title {
+            font-size: 15px;
+            font-weight: 600;
+            color: var(--text-primary);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .rom-card-body {
+            padding: 20px;
+        }
+
+        .rom-gauge-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 16px;
+        }
+
+        .rom-gauge {
+            position: relative;
+            width: 200px;
+            height: 120px;
+        }
+
+        .rom-gauge svg {
+            width: 100%;
+            height: 100%;
+        }
+
+        .rom-angle-display {
+            text-align: center;
+        }
+
+        .rom-angle-big {
+            font-size: 42px;
+            font-weight: 700;
+            line-height: 1;
+            transition: color 0.3s;
+        }
+
+        .rom-angle-target {
+            font-size: 13px;
+            color: var(--text-muted);
+            margin-top: 4px;
+        }
+
+        .rom-status-badge {
+            display: inline-block;
+            padding: 3px 10px;
+            border-radius: 20px;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .rom-measurements-list {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .rom-measurement-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 14px;
+            background: var(--bg-tertiary);
+            border-radius: 8px;
+            border-left: 3px solid var(--accent-color);
+        }
+
+        .rom-measurement-name {
+            font-size: 13px;
+            font-weight: 500;
+            color: var(--text-primary);
+            text-transform: capitalize;
+        }
+
+        .rom-measurement-value {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .rom-measurement-angle {
+            font-size: 18px;
+            font-weight: 700;
+        }
+
+        .rom-measurement-pct {
+            font-size: 11px;
+            color: var(--text-muted);
+        }
+
+        .rom-progress-section {
+            margin-top: 16px;
+            padding-top: 16px;
+            border-top: 1px solid var(--border-color);
+        }
+
+        .rom-progress-title {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-secondary);
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .rom-progress-stats {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+        }
+
+        .rom-progress-stat {
+            background: var(--bg-tertiary);
+            padding: 10px 12px;
+            border-radius: 8px;
+            text-align: center;
+        }
+
+        .rom-progress-stat-value {
+            font-size: 20px;
+            font-weight: 700;
+            color: var(--accent-color);
+        }
+
+        .rom-progress-stat-label {
+            font-size: 11px;
+            color: var(--text-muted);
+            margin-top: 2px;
+        }
+
+        .rom-history-mini {
+            margin-top: 12px;
+        }
+
+        .rom-history-mini canvas {
+            width: 100%;
+            height: 60px;
+            border-radius: 6px;
+        }
+
+        .rom-notes {
+            margin-top: 12px;
+            padding: 10px 14px;
+            background: var(--bg-tertiary);
+            border-radius: 8px;
+            font-size: 12px;
+            color: var(--text-secondary);
+            font-style: italic;
+            display: none;
+        }
+
+        .rom-empty-state {
+            text-align: center;
+            padding: 30px 20px;
+            color: var(--text-muted);
+        }
+
+        .rom-empty-state i {
+            margin-bottom: 8px;
+            opacity: 0.5;
+        }
+
+        .rom-clear-btn {
+            background: none;
+            border: 1px solid var(--border-color);
+            color: var(--text-muted);
+            padding: 4px 10px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 11px;
+            transition: all 0.2s;
+        }
+
+        .rom-clear-btn:hover {
+            background: var(--bg-tertiary);
+            color: var(--error-color);
+            border-color: var(--error-color);
+        }
+
+        .rom-confidence-badge {
+            font-size: 10px;
+            padding: 1px 6px;
+            border-radius: 10px;
+            font-weight: 500;
+        }
+
+        .confidence-high {
+            background: rgba(118, 185, 0, 0.15);
+            color: #76B900;
+        }
+
+        .confidence-medium {
+            background: rgba(255, 167, 38, 0.15);
+            color: #FFA726;
+        }
+
+        .confidence-low {
+            background: rgba(239, 83, 80, 0.15);
+            color: #EF5350;
+        }
+
     </style>
 
     <!-- SVG Gradient Definitions (for gradient strokes) -->
@@ -2030,6 +2297,56 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
                 </div>
             </div>
 
+            <!-- ROM Measurement Panel -->
+            <div class="panel">
+                <div class="panel-header" onclick="togglePanel('romPanel')">
+                    <div class="panel-title">
+                        <span class="panel-icon">
+                            <i data-lucide="ruler"></i>
+                        </span>
+                        ROM Measurement
+                    </div>
+                    <span class="panel-toggle" id="romPanelToggle">▶</span>
+                </div>
+                <div class="panel-content" id="romPanel" style="display: none;">
+                    <div class="rom-panel-content">
+                        <div class="rom-toggle-row">
+                            <span class="rom-toggle-label">Enable ROM Mode</span>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="romToggle">
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        <div class="rom-controls" id="romControls" style="opacity: 0.5; pointer-events: none;">
+                            <div>
+                                <label>Joint</label>
+                                <select id="romJointSelect">
+                                    <option value="shoulder">Shoulder</option>
+                                    <option value="elbow">Elbow</option>
+                                    <option value="wrist">Wrist</option>
+                                    <option value="hip">Hip</option>
+                                    <option value="knee" selected>Knee</option>
+                                    <option value="ankle">Ankle</option>
+                                    <option value="neck">Neck</option>
+                                    <option value="lumbar_spine">Lumbar Spine</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label>Side</label>
+                                <select id="romSideSelect">
+                                    <option value="right" selected>Right</option>
+                                    <option value="left">Left</option>
+                                    <option value="bilateral">Bilateral</option>
+                                </select>
+                            </div>
+                            <div class="input-hint" style="margin-top: 4px;">
+                                VLM analyzes each frame to estimate joint angles in degrees. Position the target joint clearly in the camera view.
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
         </div>
 
         <!-- Main Content -->
@@ -2086,6 +2403,86 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
                         <i data-lucide="copy"></i>
                     </button>
                     <div class="result-text-content" id="resultTextContent"></div>
+                </div>
+            </div>
+
+            <!-- ROM Measurement Card (hidden by default) -->
+            <div class="rom-card" id="romCard" style="display: none;">
+                <div class="rom-card-header">
+                    <div class="rom-card-title">
+                        <i data-lucide="ruler" style="width: 18px; height: 18px;"></i>
+                        Range of Motion
+                        <span id="romJointLabel" style="color: var(--accent-color);">Knee</span>
+                    </div>
+                    <button class="rom-clear-btn" id="romClearBtn" title="Clear measurement history">Clear History</button>
+                </div>
+                <div class="rom-card-body">
+                    <!-- Empty state -->
+                    <div class="rom-empty-state" id="romEmptyState">
+                        <i data-lucide="scan" style="width: 32px; height: 32px;"></i>
+                        <div style="font-size: 14px; margin-top: 8px;">Waiting for measurements...</div>
+                        <div style="font-size: 12px; margin-top: 4px;">Position the target joint clearly in the camera view</div>
+                    </div>
+
+                    <!-- Gauge + measurements (hidden until data) -->
+                    <div id="romDataSection" style="display: none;">
+                        <div class="rom-gauge-container">
+                            <div class="rom-gauge">
+                                <svg viewBox="0 0 200 120" id="romGaugeSvg">
+                                    <defs>
+                                        <linearGradient id="gaugeGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+                                            <stop offset="0%" style="stop-color:#EF5350"/>
+                                            <stop offset="40%" style="stop-color:#FFA726"/>
+                                            <stop offset="70%" style="stop-color:#8BC34A"/>
+                                            <stop offset="100%" style="stop-color:#76B900"/>
+                                        </linearGradient>
+                                    </defs>
+                                    <path d="M 20 110 A 80 80 0 0 1 180 110" fill="none" stroke="var(--bg-tertiary)" stroke-width="12" stroke-linecap="round"/>
+                                    <path d="M 20 110 A 80 80 0 0 1 180 110" fill="none" stroke="url(#gaugeGradient)" stroke-width="12" stroke-linecap="round" id="romGaugeArc" stroke-dasharray="0 251.33"/>
+                                    <circle cx="100" cy="110" r="4" fill="var(--text-primary)" id="romGaugeNeedle"/>
+                                    <line x1="100" y1="110" x2="100" y2="40" stroke="var(--text-primary)" stroke-width="2" stroke-linecap="round" id="romGaugeNeedleLine" transform="rotate(0, 100, 110)"/>
+                                </svg>
+                            </div>
+                            <div class="rom-angle-display">
+                                <div class="rom-angle-big" id="romAngleBig" style="color: var(--text-muted);">--°</div>
+                                <div class="rom-angle-target" id="romAngleTarget">Target: --°</div>
+                                <div style="margin-top: 6px;">
+                                    <span class="rom-status-badge" id="romStatusBadge" style="background: var(--bg-tertiary); color: var(--text-muted);">Waiting</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="rom-measurements-list" id="romMeasurementsList"></div>
+
+                        <div class="rom-notes" id="romNotes"></div>
+
+                        <div class="rom-progress-section" id="romProgressSection" style="display: none;">
+                            <div class="rom-progress-title">
+                                <i data-lucide="trending-up" style="width: 14px; height: 14px;"></i> Session Progress
+                            </div>
+                            <div class="rom-progress-stats">
+                                <div class="rom-progress-stat">
+                                    <div class="rom-progress-stat-value" id="romProgressImprovement">--</div>
+                                    <div class="rom-progress-stat-label">Improvement</div>
+                                </div>
+                                <div class="rom-progress-stat">
+                                    <div class="rom-progress-stat-value" id="romProgressBest">--°</div>
+                                    <div class="rom-progress-stat-label">Best Angle</div>
+                                </div>
+                                <div class="rom-progress-stat">
+                                    <div class="rom-progress-stat-value" id="romProgressCount">0</div>
+                                    <div class="rom-progress-stat-label">Measurements</div>
+                                </div>
+                                <div class="rom-progress-stat">
+                                    <div class="rom-progress-stat-value" id="romProgressLatest">--°</div>
+                                    <div class="rom-progress-stat-label">Latest</div>
+                                </div>
+                            </div>
+                            <div class="rom-history-mini">
+                                <canvas id="romHistoryChart"></canvas>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
 
@@ -3637,6 +4034,17 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
                 } else if (data.type === 'processing_updated') {
                     // Processing interval was updated on server
                     console.log('Processing interval updated:', data.process_every);
+                } else if (data.type === 'rom_measurement') {
+                    handleROMMeasurement(data);
+                } else if (data.type === 'rom_enabled') {
+                    console.log('ROM mode enabled:', data.joint, data.side);
+                } else if (data.type === 'rom_disabled') {
+                    console.log('ROM mode disabled');
+                } else if (data.type === 'rom_joint_updated') {
+                    console.log('ROM joint updated:', data.joint, data.side);
+                } else if (data.type === 'rom_history_cleared') {
+                    resetROMDisplay();
+                    console.log('ROM history cleared');
                 }
             };
 
@@ -3897,6 +4305,236 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
 
         startBtn.addEventListener('click', start);
         stopBtn.addEventListener('click', stop);
+
+        // ===== ROM Measurement Logic =====
+        const romToggle = document.getElementById('romToggle');
+        const romControls = document.getElementById('romControls');
+        const romCard = document.getElementById('romCard');
+        const romJointSelect = document.getElementById('romJointSelect');
+        const romSideSelect = document.getElementById('romSideSelect');
+        const romClearBtn = document.getElementById('romClearBtn');
+        const romEmptyState = document.getElementById('romEmptyState');
+        const romDataSection = document.getElementById('romDataSection');
+        const romAngleBig = document.getElementById('romAngleBig');
+        const romAngleTarget = document.getElementById('romAngleTarget');
+        const romStatusBadge = document.getElementById('romStatusBadge');
+        const romMeasurementsList = document.getElementById('romMeasurementsList');
+        const romNotes = document.getElementById('romNotes');
+        const romProgressSection = document.getElementById('romProgressSection');
+        const romJointLabel = document.getElementById('romJointLabel');
+        let romHistoryData = [];
+        let romSavedPrompt = '';
+        let romSavedMaxTokens = 512;
+
+        romToggle.addEventListener('change', () => {
+            const enabled = romToggle.checked;
+            romControls.style.opacity = enabled ? '1' : '0.5';
+            romControls.style.pointerEvents = enabled ? 'auto' : 'none';
+            romCard.style.display = enabled ? 'block' : 'none';
+
+            if (enabled) {
+                romSavedPrompt = promptText.value;
+                romSavedMaxTokens = parseInt(maxTokens.value) || 512;
+
+                if (websocket && websocket.readyState === WebSocket.OPEN) {
+                    websocket.send(JSON.stringify({
+                        type: 'rom_enable',
+                        joint: romJointSelect.value,
+                        side: romSideSelect.value
+                    }));
+                }
+                romJointLabel.textContent = romJointSelect.options[romJointSelect.selectedIndex].text;
+            } else {
+                if (websocket && websocket.readyState === WebSocket.OPEN) {
+                    websocket.send(JSON.stringify({ type: 'rom_disable' }));
+                }
+                promptText.value = romSavedPrompt;
+                maxTokens.value = romSavedMaxTokens;
+            }
+        });
+
+        romJointSelect.addEventListener('change', () => {
+            if (!romToggle.checked) return;
+            romJointLabel.textContent = romJointSelect.options[romJointSelect.selectedIndex].text;
+            resetROMDisplay();
+            if (websocket && websocket.readyState === WebSocket.OPEN) {
+                websocket.send(JSON.stringify({
+                    type: 'rom_update_joint',
+                    joint: romJointSelect.value,
+                    side: romSideSelect.value
+                }));
+            }
+        });
+
+        romSideSelect.addEventListener('change', () => {
+            if (!romToggle.checked) return;
+            if (websocket && websocket.readyState === WebSocket.OPEN) {
+                websocket.send(JSON.stringify({
+                    type: 'rom_update_joint',
+                    joint: romJointSelect.value,
+                    side: romSideSelect.value
+                }));
+            }
+        });
+
+        romClearBtn.addEventListener('click', () => {
+            if (websocket && websocket.readyState === WebSocket.OPEN) {
+                websocket.send(JSON.stringify({ type: 'rom_clear_history' }));
+            }
+            resetROMDisplay();
+        });
+
+        function resetROMDisplay() {
+            romEmptyState.style.display = 'block';
+            romDataSection.style.display = 'none';
+            romProgressSection.style.display = 'none';
+            romMeasurementsList.innerHTML = '';
+            romAngleBig.textContent = '--°';
+            romAngleBig.style.color = 'var(--text-muted)';
+            romAngleTarget.textContent = 'Target: --°';
+            romStatusBadge.textContent = 'Waiting';
+            romStatusBadge.style.background = 'var(--bg-tertiary)';
+            romStatusBadge.style.color = 'var(--text-muted)';
+            romNotes.style.display = 'none';
+            romHistoryData = [];
+            updateROMGauge(0, 1);
+        }
+
+        function handleROMMeasurement(data) {
+            if (!data.parsed || !data.parsed.visible) {
+                // Joint not visible — show guidance
+                const notes = data.parsed ? data.parsed.notes : 'Position the joint in the camera view';
+                romNotes.textContent = notes;
+                romNotes.style.display = 'block';
+                return;
+            }
+
+            if (!data.results || data.results.length === 0) return;
+
+            romEmptyState.style.display = 'none';
+            romDataSection.style.display = 'block';
+
+            // Take the primary (first) measurement for the gauge
+            const primary = data.results[0];
+            romAngleBig.textContent = `${Math.round(primary.angle)}°`;
+            romAngleBig.style.color = primary.color;
+            romAngleTarget.textContent = `Target: ${Math.round(primary.target_angle)}°`;
+            romStatusBadge.textContent = primary.status;
+            romStatusBadge.style.background = primary.color + '22';
+            romStatusBadge.style.color = primary.color;
+
+            updateROMGauge(primary.angle, primary.target_angle);
+
+            // Build measurement items
+            romMeasurementsList.innerHTML = '';
+            data.results.forEach(r => {
+                const item = document.createElement('div');
+                item.className = 'rom-measurement-item';
+                item.style.borderLeftColor = r.color;
+                item.innerHTML = `
+                    <div>
+                        <div class="rom-measurement-name">${r.movement.replace(/_/g, ' ')}</div>
+                        <span class="rom-confidence-badge confidence-${r.confidence}">${r.confidence}</span>
+                    </div>
+                    <div class="rom-measurement-value">
+                        <span class="rom-measurement-angle" style="color: ${r.color}">${Math.round(r.angle)}°</span>
+                        <span class="rom-measurement-pct">${r.percent_of_normal}%</span>
+                    </div>
+                `;
+                romMeasurementsList.appendChild(item);
+            });
+
+            // Notes
+            if (data.parsed.notes && data.parsed.notes.length > 0) {
+                romNotes.textContent = data.parsed.notes;
+                romNotes.style.display = 'block';
+            } else {
+                romNotes.style.display = 'none';
+            }
+
+            // Progress
+            if (data.progress && data.progress.has_data) {
+                romProgressSection.style.display = 'block';
+                const p = data.progress;
+                const improvement = p.improvement;
+                const sign = improvement >= 0 ? '+' : '';
+                document.getElementById('romProgressImprovement').textContent = `${sign}${improvement}°`;
+                document.getElementById('romProgressImprovement').style.color =
+                    improvement >= 0 ? 'var(--accent-color)' : 'var(--error-color)';
+                document.getElementById('romProgressBest').textContent = `${Math.round(p.best_angle)}°`;
+                document.getElementById('romProgressCount').textContent = p.total_measurements;
+                document.getElementById('romProgressLatest').textContent = `${Math.round(p.latest_angle)}°`;
+            }
+
+            // Track history for sparkline
+            romHistoryData.push(primary.angle);
+            if (romHistoryData.length > 30) romHistoryData.shift();
+            drawROMHistoryChart();
+
+            // Also update VLM metrics if available
+            if (data.metrics) {
+                metricsInline.style.display = 'flex';
+                latencyValue.textContent = Math.round(data.metrics.last_latency_ms);
+                avgLatencyValue.textContent = Math.round(data.metrics.avg_latency_ms);
+                countValue.textContent = data.metrics.total_inferences;
+            }
+        }
+
+        function updateROMGauge(angle, target) {
+            const maxAngle = Math.max(target, 180);
+            const pct = Math.min(angle / maxAngle, 1);
+            const arcLength = 251.33; // approximate arc length of the SVG path
+            const dashLength = pct * arcLength;
+
+            const gaugeArc = document.getElementById('romGaugeArc');
+            gaugeArc.setAttribute('stroke-dasharray', `${dashLength} ${arcLength}`);
+
+            // Rotate needle: -90° = left (0°), 0° = up (half), +90° = right (max)
+            const needleAngle = -90 + (pct * 180);
+            const needleLine = document.getElementById('romGaugeNeedleLine');
+            needleLine.setAttribute('transform', `rotate(${needleAngle}, 100, 110)`);
+        }
+
+        function drawROMHistoryChart() {
+            const canvas = document.getElementById('romHistoryChart');
+            if (!canvas || romHistoryData.length < 2) return;
+            const ctx = canvas.getContext('2d');
+            const dpr = window.devicePixelRatio || 1;
+            const rect = canvas.getBoundingClientRect();
+            canvas.width = rect.width * dpr;
+            canvas.height = rect.height * dpr;
+            ctx.scale(dpr, dpr);
+            const w = rect.width;
+            const h = rect.height;
+            ctx.clearRect(0, 0, w, h);
+
+            const data = romHistoryData;
+            const maxVal = Math.max(...data, 1);
+            const minVal = Math.min(...data, 0);
+            const range = maxVal - minVal || 1;
+            const padding = 4;
+
+            ctx.beginPath();
+            ctx.strokeStyle = '#76B900';
+            ctx.lineWidth = 2;
+            ctx.lineJoin = 'round';
+
+            data.forEach((val, i) => {
+                const x = padding + (i / (data.length - 1)) * (w - 2 * padding);
+                const y = h - padding - ((val - minVal) / range) * (h - 2 * padding);
+                if (i === 0) ctx.moveTo(x, y);
+                else ctx.lineTo(x, y);
+            });
+            ctx.stroke();
+
+            // Fill area under line
+            const lastX = padding + ((data.length - 1) / (data.length - 1)) * (w - 2 * padding);
+            ctx.lineTo(lastX, h - padding);
+            ctx.lineTo(padding, h - padding);
+            ctx.closePath();
+            ctx.fillStyle = 'rgba(118, 185, 0, 0.1)';
+            ctx.fill();
+        }
 
         // Load on page load
         window.addEventListener('load', async () => {

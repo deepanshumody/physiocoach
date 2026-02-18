@@ -39,6 +39,7 @@ from .vlm_service import VLMService
 from .video_processor import VideoProcessorTrack
 from .gpu_monitor import create_monitor
 from .rtsp_track import RTSPVideoTrack
+from .rom_service import ROMService
 
 # Configure logging
 logging.basicConfig(
@@ -54,6 +55,7 @@ websockets = set()  # Track active WebSocket connections
 gpu_monitor = None  # GPU monitoring instance
 gpu_monitor_task = None  # Background task for GPU monitoring
 rtsp_tracks = {}  # Track active RTSP streams {session_id: (rtsp_track, processor_track)}
+rom_service = ROMService()  # ROM measurement service
 
 
 def is_port_available(port, host="0.0.0.0"):
@@ -381,6 +383,64 @@ async def websocket_handler(request):
                                 logger.warning(f"Max latency out of range (0-10.0): {max_latency}")
                         except ValueError:
                             logger.error(f"Invalid max latency value: {max_latency}")
+
+                    elif data.get("type") == "rom_enable":
+                        joint = data.get("joint", "knee")
+                        side = data.get("side", "right")
+                        rom_service.enabled = True
+                        rom_service.current_joint = joint
+                        rom_service.current_side = side
+
+                        from .video_processor import VideoProcessorTrack
+                        VideoProcessorTrack.rom_mode = True
+                        VideoProcessorTrack.rom_joint = joint
+                        VideoProcessorTrack.rom_side = side
+
+                        if vlm_service:
+                            rom_prompt = rom_service.get_rom_prompt(joint, side)
+                            vlm_service.update_prompt(rom_prompt, max_tokens=1024)
+
+                        logger.info(f"ROM mode enabled: {side} {joint}")
+                        await ws.send_json({
+                            "type": "rom_enabled",
+                            "joint": joint,
+                            "side": side,
+                            "reference": rom_service.get_reference_data(joint),
+                        })
+
+                    elif data.get("type") == "rom_disable":
+                        rom_service.enabled = False
+                        from .video_processor import VideoProcessorTrack
+                        VideoProcessorTrack.rom_mode = False
+                        logger.info("ROM mode disabled")
+                        await ws.send_json({"type": "rom_disabled"})
+
+                    elif data.get("type") == "rom_update_joint":
+                        joint = data.get("joint", "knee")
+                        side = data.get("side", "right")
+                        rom_service.current_joint = joint
+                        rom_service.current_side = side
+
+                        from .video_processor import VideoProcessorTrack
+                        VideoProcessorTrack.rom_joint = joint
+                        VideoProcessorTrack.rom_side = side
+
+                        if vlm_service and rom_service.enabled:
+                            rom_prompt = rom_service.get_rom_prompt(joint, side)
+                            vlm_service.update_prompt(rom_prompt, max_tokens=1024)
+
+                        logger.info(f"ROM joint updated: {side} {joint}")
+                        await ws.send_json({
+                            "type": "rom_joint_updated",
+                            "joint": joint,
+                            "side": side,
+                            "reference": rom_service.get_reference_data(joint),
+                        })
+
+                    elif data.get("type") == "rom_clear_history":
+                        rom_service.clear_history()
+                        logger.info("ROM history cleared")
+                        await ws.send_json({"type": "rom_history_cleared"})
                 except json.JSONDecodeError:
                     logger.error("Invalid JSON from client")
                 except Exception as e:
@@ -399,13 +459,38 @@ def broadcast_text_update(text: str, metrics: dict):
     if not websockets:
         return
 
+    # If ROM mode is active, parse VLM response for ROM data
+    if rom_service.enabled:
+        parsed = rom_service.parse_vlm_response(text)
+        if parsed:
+            rom_results = rom_service.record_measurement(parsed)
+            progress = rom_service.get_progress(
+                rom_service.current_joint
+            )
+            rom_message = json.dumps({
+                "type": "rom_measurement",
+                "raw_text": text,
+                "parsed": parsed,
+                "results": rom_results,
+                "progress": progress,
+                "metrics": metrics,
+            })
+            dead_websockets = set()
+            for ws in websockets:
+                try:
+                    asyncio.create_task(ws.send_str(rom_message))
+                except Exception as e:
+                    logger.error(f"Error sending ROM data to websocket: {e}")
+                    dead_websockets.add(ws)
+            websockets.difference_update(dead_websockets)
+            return
+
     message = json.dumps({"type": "vlm_response", "text": text, "metrics": metrics})
 
     # Send to all connected clients
     dead_websockets = set()
     for ws in websockets:
         try:
-            # Use asyncio to send without blocking
             asyncio.create_task(ws.send_str(message))
         except Exception as e:
             logger.error(f"Error sending to websocket: {e}")
@@ -750,6 +835,41 @@ async def _stop_rtsp_session(session_id: str):
         logger.warning(f"RTSP session {session_id} not found")
 
 
+async def rom_reference(request):
+    """Get ROM clinical reference data"""
+    joint = request.rel_url.query.get("joint")
+    data = rom_service.get_reference_data(joint)
+    return web.Response(content_type="application/json", text=json.dumps(data))
+
+
+async def rom_history(request):
+    """Get ROM measurement history"""
+    joint = request.rel_url.query.get("joint")
+    limit = int(request.rel_url.query.get("limit", "50"))
+    history = rom_service.get_history(joint=joint, limit=limit)
+    summary = rom_service.get_session_summary()
+    return web.Response(
+        content_type="application/json",
+        text=json.dumps({"history": history, "summary": summary}),
+    )
+
+
+async def rom_progress(request):
+    """Get ROM progress data"""
+    joint = request.rel_url.query.get("joint")
+    movement = request.rel_url.query.get("movement")
+    progress = rom_service.get_progress(joint=joint, movement=movement)
+    return web.Response(content_type="application/json", text=json.dumps(progress))
+
+
+async def rom_clear(request):
+    """Clear ROM history"""
+    rom_service.clear_history()
+    return web.Response(
+        content_type="application/json", text=json.dumps({"status": "cleared"})
+    )
+
+
 async def on_startup(app):
     """Initialize resources on server startup"""
     global gpu_monitor, gpu_monitor_task
@@ -829,6 +949,12 @@ async def create_app(test_mode=False):
     app.router.add_post("/api/rtsp/start", rtsp_start)
     app.router.add_post("/api/rtsp/stop", rtsp_stop)
     app.router.add_get("/api/rtsp/status", rtsp_status)
+
+    # ROM measurement endpoints
+    app.router.add_get("/api/rom/reference", rom_reference)
+    app.router.add_get("/api/rom/history", rom_history)
+    app.router.add_get("/api/rom/progress", rom_progress)
+    app.router.add_post("/api/rom/clear", rom_clear)
 
     # Serve static files (images, etc.)
     # Always serve from static/images within the package (works for both pip and dev installs)

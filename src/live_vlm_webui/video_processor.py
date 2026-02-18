@@ -47,6 +47,10 @@ class VideoProcessorTrack(VideoStreamTrack):
     process_every_n_frames = 30
     # Max allowed latency before dropping frames (in seconds, 0 = disabled)
     max_frame_latency = 0.0
+    # ROM measurement mode
+    rom_mode = False
+    rom_joint = "knee"
+    rom_side = "right"
 
     def __init__(self, track: VideoStreamTrack, vlm_service: VLMService, text_callback=None):
         super().__init__()
