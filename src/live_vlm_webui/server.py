@@ -59,6 +59,9 @@ rtsp_tracks = {}  # Track active RTSP streams {session_id: (rtsp_track, processo
 # camera_slots = {1: pc, 2: pc}  maps slot number → peer connection
 camera_slots: dict = {}
 MAX_CAMERAS = 2
+# Store the processor track for each camera so we can relay it to other peers
+# camera_tracks = {1: VideoProcessorTrack, 2: VideoProcessorTrack}
+camera_tracks: dict = {}
 
 
 def is_port_available(port, host="0.0.0.0"):
@@ -552,6 +555,7 @@ async def offer(request):
             # Free up the camera slot
             if camera_slots.get(slot) is pc:
                 del camera_slots[slot]
+                camera_tracks.pop(slot, None)
                 logger.info(f"Camera slot {slot} freed")
                 _broadcast_json({"type": "camera_disconnected", "camera_id": slot, "occupied": list(camera_slots.keys())})
 
@@ -614,13 +618,38 @@ async def offer(request):
                     relay.subscribe(track), vlm_service, text_callback=camera_callback
                 )
 
-                # Add processed track back to connection
+                # Add processed track back to this peer connection (own feed)
                 pc.addTrack(processor_track)
                 logger.info(f"Camera {slot}: Added processed video track back to peer connection")
+
+                # Store this camera's processor track globally so other peers can subscribe
+                camera_tracks[slot] = processor_track
+
+                # If the other camera is already connected, cross-relay tracks
+                other_slot = 2 if slot == 1 else 1
+                other_pc = camera_slots.get(other_slot)
+                other_track = camera_tracks.get(other_slot)
+
+                if other_pc and other_track:
+                    # Send other camera's feed to this peer
+                    pc.addTrack(relay.subscribe(other_track))
+                    logger.info(f"Camera {slot}: Added Camera {other_slot} relay track")
+
+                    # Send this camera's feed to the other peer
+                    other_pc.addTrack(relay.subscribe(processor_track))
+                    logger.info(f"Camera {other_slot}: Added Camera {slot} relay track (cross-relay)")
+
+                    # Notify all clients that both cameras are now active
+                    _broadcast_json({
+                        "type": "camera_connected",
+                        "camera_id": slot,
+                        "occupied": list(camera_slots.keys())
+                    })
 
             @track.on("ended")
             async def on_ended():
                 logger.info(f"Camera {slot}: Track {track.kind} ended")
+                camera_tracks.pop(slot, None)
 
     # Handle offer
     await pc.setRemoteDescription(offer_sdp)

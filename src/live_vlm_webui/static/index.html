@@ -3772,13 +3772,27 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
                 });
 
                 peerConnection.ontrack = (event) => {
-                    console.log('Received remote track');
+                    console.log('Received remote track, streams:', event.streams.length);
                     if (event.track.kind === 'video') {
-                        videoElement.srcObject = event.streams[0];
-                        // Explicitly play to ensure continuous frame flow
-                        videoElement.play().catch(err => {
-                            console.error('Error playing video:', err);
-                        });
+                        // Count how many video tracks we've received so far
+                        const existingTracks = peerConnection.getReceivers()
+                            .filter(r => r.track && r.track.kind === 'video' && r.track.readyState === 'live');
+
+                        if (existingTracks.length <= 1) {
+                            // First track = own camera feed
+                            videoElement.srcObject = event.streams[0];
+                            videoElement.play().catch(err => console.error('Error playing video:', err));
+                        } else {
+                            // Second track = other camera's feed
+                            const videoElement2 = document.getElementById('videoElement2');
+                            videoElement2.srcObject = event.streams[0];
+                            videoElement2.play().catch(err => console.error('Error playing video2:', err));
+                            // Show Camera 2 panel
+                            document.getElementById('cam2Card').style.display = '';
+                            document.getElementById('cam2ResultSection').style.display = '';
+                            document.getElementById('videoGrid').style.gridTemplateColumns = '1fr 1fr';
+                            document.getElementById('cam2Status').textContent = 'Connected';
+                        }
                     }
                 };
 
