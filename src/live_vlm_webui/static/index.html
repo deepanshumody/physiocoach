@@ -810,7 +810,7 @@ function connectWebSocket() {
     };
 }
 
-function handleMessage(data) {
+async function handleMessage(data) {
     if (data.type === 'exercise_update') {
         updateExerciseUI(data);
     } else if (data.type === 'rep_counted') {
