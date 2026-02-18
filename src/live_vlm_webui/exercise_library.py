@@ -30,6 +30,9 @@ class Exercise:
     rep_start_phase: str
     rep_end_phase: str
     rom_targets: list[ROMTarget] = field(default_factory=list)
+    primary_joint: Optional[tuple[str, str, str]] = None
+    rep_down_threshold: float = 90.0
+    rep_up_threshold: float = 150.0
 
     def to_dict(self) -> dict:
         d = asdict(self)
@@ -109,6 +112,9 @@ EXERCISES: list[Exercise] = [
             ROMTarget(joint="knee", movement="flexion", side="both", target_angle=135),
             ROMTarget(joint="hip", movement="flexion", side="both", target_angle=120),
         ],
+        primary_joint=("left_hip", "left_knee", "left_ankle"),
+        rep_down_threshold=100,
+        rep_up_threshold=155,
     ),
     Exercise(
         id="lunge",
@@ -130,6 +136,9 @@ EXERCISES: list[Exercise] = [
             ROMTarget(joint="knee", movement="flexion", side="both", target_angle=90),
             ROMTarget(joint="hip", movement="flexion", side="both", target_angle=90),
         ],
+        primary_joint=("left_hip", "left_knee", "left_ankle"),
+        rep_down_threshold=100,
+        rep_up_threshold=155,
     ),
     Exercise(
         id="wall_pushup",
@@ -150,6 +159,9 @@ EXERCISES: list[Exercise] = [
         rom_targets=[
             ROMTarget(joint="elbow", movement="flexion", side="both", target_angle=90),
         ],
+        primary_joint=("left_shoulder", "left_elbow", "left_wrist"),
+        rep_down_threshold=100,
+        rep_up_threshold=155,
     ),
     Exercise(
         id="shoulder_raise",
@@ -170,6 +182,9 @@ EXERCISES: list[Exercise] = [
         rom_targets=[
             ROMTarget(joint="shoulder", movement="abduction", side="both", target_angle=90),
         ],
+        primary_joint=("left_hip", "left_shoulder", "left_wrist"),
+        rep_down_threshold=30,
+        rep_up_threshold=70,
     ),
     Exercise(
         id="calf_raise",
@@ -190,6 +205,9 @@ EXERCISES: list[Exercise] = [
         rom_targets=[
             ROMTarget(joint="ankle", movement="plantarflexion", side="both", target_angle=50),
         ],
+        primary_joint=("left_hip", "left_knee", "left_ankle"),
+        rep_down_threshold=160,
+        rep_up_threshold=172,
     ),
     Exercise(
         id="seated_knee_ext",
@@ -210,6 +228,9 @@ EXERCISES: list[Exercise] = [
         rom_targets=[
             ROMTarget(joint="knee", movement="extension", side="right", target_angle=0, min_angle=90),
         ],
+        primary_joint=("left_hip", "left_knee", "left_ankle"),
+        rep_down_threshold=100,
+        rep_up_threshold=155,
     ),
     Exercise(
         id="leg_raise",
@@ -230,6 +251,9 @@ EXERCISES: list[Exercise] = [
         rom_targets=[
             ROMTarget(joint="hip", movement="abduction", side="right", target_angle=45),
         ],
+        primary_joint=("left_shoulder", "left_hip", "left_ankle"),
+        rep_down_threshold=155,
+        rep_up_threshold=170,
     ),
     Exercise(
         id="hip_abduction",
@@ -250,6 +274,9 @@ EXERCISES: list[Exercise] = [
         rom_targets=[
             ROMTarget(joint="hip", movement="abduction", side="right", target_angle=45),
         ],
+        primary_joint=("left_shoulder", "left_hip", "left_ankle"),
+        rep_down_threshold=155,
+        rep_up_threshold=170,
     ),
     Exercise(
         id="bicep_curl",
@@ -270,6 +297,9 @@ EXERCISES: list[Exercise] = [
         rom_targets=[
             ROMTarget(joint="elbow", movement="flexion", side="both", target_angle=150),
         ],
+        primary_joint=("left_shoulder", "left_elbow", "left_wrist"),
+        rep_down_threshold=50,
+        rep_up_threshold=140,
     ),
     Exercise(
         id="neck_rotation",

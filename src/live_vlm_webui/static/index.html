@@ -87,11 +87,50 @@
             justify-content: center;
             overflow: hidden;
         }
-        #videoElement {
+
+        /* Dual camera grid inside video-area */
+        .camera-grid {
+            width: 100%;
+            height: 100%;
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 4px;
+        }
+        .camera-grid.dual {
+            grid-template-columns: 1fr 1fr;
+        }
+        .camera-slot {
+            position: relative;
+            background: #0f172a;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+            min-height: 0;
+        }
+        .camera-slot video {
             width: 100%;
             height: 100%;
             object-fit: contain;
             transform: scaleX(-1);
+        }
+        .cam-label {
+            position: absolute;
+            top: 8px;
+            left: 8px;
+            font-size: 11px;
+            font-weight: 700;
+            padding: 2px 8px;
+            border-radius: 4px;
+            color: #fff;
+            z-index: 10;
+        }
+        .cam-label.cam1 { background: var(--primary); }
+        .cam-label.cam2 { background: #7c3aed; }
+        .cam2-waiting {
+            color: rgba(255,255,255,0.4);
+            font-size: 0.85rem;
+            text-align: center;
         }
 
         /* Overlay elements on video */
@@ -450,30 +489,45 @@
 <div class="main">
     <!-- Video -->
     <div class="video-area">
-        <video id="videoElement" autoplay playsinline muted></video>
+        <div class="camera-grid" id="cameraGrid">
 
-        <div class="video-overlay">
-            <div class="overlay-badge phase-badge" id="phaseBadge" style="display:none;">
-                <i data-lucide="activity"></i>
-                <span id="phaseText">--</span>
+            <!-- Camera 1 -->
+            <div class="camera-slot" id="cam1Slot">
+                <span class="cam-label cam1">CAM 1</span>
+                <video id="videoElement" autoplay playsinline muted></video>
+                <div class="video-overlay">
+                    <div class="overlay-badge phase-badge" id="phaseBadge" style="display:none;">
+                        <i data-lucide="activity"></i>
+                        <span id="phaseText">--</span>
+                    </div>
+                    <div class="overlay-badge" id="latencyBadge" style="display:none;">
+                        <i data-lucide="gauge"></i>
+                        <span id="latencyText">--ms</span>
+                    </div>
+                </div>
+                <div class="form-ring-container" id="formRing" style="display:none;">
+                    <svg viewBox="0 0 100 100">
+                        <circle cx="50" cy="50" r="42" fill="none" stroke="rgba(255,255,255,0.15)" stroke-width="7"/>
+                        <circle id="formRingCircle" cx="50" cy="50" r="42" fill="none" stroke="#22c55e" stroke-width="7"
+                            stroke-dasharray="264" stroke-dashoffset="264" stroke-linecap="round"
+                            transform="rotate(-90 50 50)" style="transition: stroke-dashoffset 0.5s ease, stroke 0.5s ease;"/>
+                    </svg>
+                    <div class="form-ring-label">
+                        <span class="score" id="formScoreRing">-</span>
+                        <span class="label">Form</span>
+                    </div>
+                </div>
             </div>
-            <div class="overlay-badge" id="latencyBadge" style="display:none;">
-                <i data-lucide="gauge"></i>
-                <span id="latencyText">--ms</span>
-            </div>
-        </div>
 
-        <div class="form-ring-container" id="formRing" style="display:none;">
-            <svg viewBox="0 0 100 100">
-                <circle cx="50" cy="50" r="42" fill="none" stroke="rgba(255,255,255,0.15)" stroke-width="7"/>
-                <circle id="formRingCircle" cx="50" cy="50" r="42" fill="none" stroke="#22c55e" stroke-width="7"
-                    stroke-dasharray="264" stroke-dashoffset="264" stroke-linecap="round"
-                    transform="rotate(-90 50 50)" style="transition: stroke-dashoffset 0.5s ease, stroke 0.5s ease;"/>
-            </svg>
-            <div class="form-ring-label">
-                <span class="score" id="formScoreRing">-</span>
-                <span class="label">Form</span>
+            <!-- Camera 2 (hidden until second device connects) -->
+            <div class="camera-slot" id="cam2Slot" style="display:none;">
+                <span class="cam-label cam2">CAM 2</span>
+                <video id="videoElement2" autoplay playsinline muted></video>
+                <div style="position:absolute;bottom:10px;left:0;right:0;text-align:center;">
+                    <span id="cam2VlmText" style="background:rgba(0,0,0,0.6);color:#fff;font-size:12px;padding:4px 10px;border-radius:6px;display:none;"></span>
+                </div>
             </div>
+
         </div>
 
         <!-- ROM Angle Display (bottom-right of video) -->
@@ -592,6 +646,10 @@ let ttsQueue = [];
 let speaking = false;
 let lastSpokenCorrection = '';
 let lastSpokenTime = 0;
+
+// Multi-camera
+let myCameraId = null;
+let cam2Active = false;
 
 // ─── DOM refs ───
 const videoEl = document.getElementById('videoElement');
@@ -764,9 +822,20 @@ async function setupWebRTC() {
     });
     localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
 
+    let trackCount = 0;
     peerConnection.ontrack = (event) => {
         if (event.streams && event.streams[0]) {
-            videoEl.srcObject = event.streams[0];
+            trackCount++;
+            if (trackCount === 1) {
+                // First track = own camera feed
+                videoEl.srcObject = event.streams[0];
+            } else {
+                // Second track = other camera's feed — show cam2
+                const v2 = document.getElementById('videoElement2');
+                v2.srcObject = event.streams[0];
+                v2.play().catch(() => {});
+                showCam2(true);
+            }
         }
     };
 
@@ -779,7 +848,22 @@ async function setupWebRTC() {
         body: JSON.stringify({ sdp: offer.sdp, type: offer.type })
     });
     const answer = await res.json();
+    if (answer.error) { alert('Camera slots full: ' + answer.error); return; }
+    myCameraId = answer.camera_id || 1;
     await peerConnection.setRemoteDescription(new RTCSessionDescription(answer));
+
+    // Register this WebSocket as belonging to myCameraId
+    if (websocket && websocket.readyState === WebSocket.OPEN) {
+        websocket.send(JSON.stringify({ type: 'register_camera', camera_id: myCameraId }));
+    }
+}
+
+function showCam2(visible) {
+    const cam2Slot = document.getElementById('cam2Slot');
+    const grid = document.getElementById('cameraGrid');
+    cam2Slot.style.display = visible ? '' : 'none';
+    grid.classList.toggle('dual', visible);
+    cam2Active = visible;
 }
 
 // ─── WebSocket ───
@@ -805,8 +889,14 @@ function connectWebSocket() {
     };
 }
 
-function handleMessage(data) {
-    if (data.type === 'exercise_update') {
+async function handleMessage(data) {
+    if (data.type === 'pose_update') {
+        if (typeof data.total_reps === 'number') updateRepCount(data.total_reps);
+        if (data.rep_completed && voiceEnabled) {
+            const now = Date.now();
+            if (now - lastSpokenTime > 1500) { speak(`${data.total_reps}`); lastSpokenTime = now; }
+        }
+    } else if (data.type === 'exercise_update') {
         updateExerciseUI(data);
     } else if (data.type === 'rep_counted') {
         updateRepCount(data.total_reps);
@@ -817,7 +907,43 @@ function handleMessage(data) {
     } else if (data.type === 'session_summary') {
         showSessionSummary(data);
     } else if (data.type === 'vlm_response') {
-        if (data.metrics) updateMetrics(data.metrics);
+        const camId = data.camera_id || 1;
+        if (camId === 2) {
+            // Show cam2 VLM text overlay
+            const t = document.getElementById('cam2VlmText');
+            if (t) { t.textContent = data.text || ''; t.style.display = data.text ? '' : 'none'; }
+        } else {
+            if (data.metrics) updateMetrics(data.metrics);
+        }
+    } else if (data.type === 'request_renegotiate') {
+        // Server wants us to add a recvonly transceiver and send a new offer
+        if (peerConnection) {
+            try {
+                peerConnection.addTransceiver('video', { direction: 'recvonly' });
+                const offer = await peerConnection.createOffer();
+                await peerConnection.setLocalDescription(offer);
+                const res = await fetch('/renegotiate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        camera_id: myCameraId,
+                        sdp: peerConnection.localDescription.sdp,
+                        type: peerConnection.localDescription.type
+                    })
+                });
+                const answer = await res.json();
+                await peerConnection.setRemoteDescription(new RTCSessionDescription(answer));
+                console.log('Renegotiation complete');
+            } catch (e) {
+                console.error('Renegotiation failed:', e);
+            }
+        }
+    } else if (data.type === 'camera_connected') {
+        const occupied = data.occupied || [];
+        if (occupied.includes(2) && !cam2Active) showCam2(true);
+    } else if (data.type === 'camera_disconnected') {
+        const occupied = data.occupied || [];
+        if (!occupied.includes(2) && cam2Active) showCam2(false);
     } else if (data.type === 'exercise_selected') {
         // confirmed
     } else if (data.type === 'server_config') {
