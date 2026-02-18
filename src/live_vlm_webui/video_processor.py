@@ -56,12 +56,13 @@ class VideoProcessorTrack(VideoStreamTrack):
     pose_every_n_frames = 3
 
     def __init__(self, track: VideoStreamTrack, vlm_service: VLMService,
-                 text_callback=None, pose_callback=None):
+                 text_callback=None, pose_callback=None, camera_role: str = "front"):
         super().__init__()
         self.track = track
         self.vlm_service = vlm_service
-        self.text_callback = text_callback  # Callback to send text updates
-        self.pose_callback = pose_callback  # Callback for pose/rep updates
+        self.text_callback = text_callback
+        self.pose_callback = pose_callback
+        self.camera_role = camera_role
         self.pose_detector = PoseDetector()
         self.last_frame: Optional[np.ndarray] = None
         self.frame_count = 0
@@ -169,6 +170,7 @@ class VideoProcessorTrack(VideoStreamTrack):
                 if need_pose:
                     pose_result = self.pose_detector.process_frame(img)
                     if self.pose_callback and pose_result.get("pose_detected"):
+                        pose_result["camera_role"] = self.camera_role
                         self.pose_callback(pose_result)
 
                 # VLM analysis (async, non-blocking, slow but smart)

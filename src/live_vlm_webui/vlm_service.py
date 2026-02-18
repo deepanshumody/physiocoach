@@ -80,10 +80,9 @@ class VLMService:
         self.is_processing = False
         self._processing_lock = asyncio.Lock()
 
-        # Exercise coaching state
-        self._exercise_prompt: Optional[str] = None
-        self._coaching_mode = False
-        self._exercise_callback = None  # Called with parsed JSON on each exercise frame
+        # Coaching state
+        self._coaching_prompt: Optional[str] = None
+        self._coaching_active = False
 
         # Metrics tracking
         self.last_inference_time = 0.0  # seconds
@@ -191,26 +190,31 @@ class VLMService:
         else:
             logger.info(f"Updated prompt to: {new_prompt}")
 
-    def set_exercise_mode(self, exercise_prompt: str, callback=None):
-        """Enter coaching mode with an exercise-specific prompt."""
-        self._exercise_prompt = exercise_prompt
-        self._coaching_mode = True
-        self._exercise_callback = callback
-        self.temperature = 0.3
-        logger.info("Entered exercise coaching mode")
+    def set_coaching_prompt(self, prompt: str):
+        """Enter coaching mode with a natural-language prompt."""
+        self._coaching_prompt = prompt
+        self._coaching_active = True
+        self._saved_max_tokens = self.max_tokens
+        self.max_tokens = 80
+        self.temperature = 0.6
+        logger.info("Coaching mode activated (max_tokens=80)")
 
-    def clear_exercise_mode(self):
-        """Exit coaching mode, restore default behaviour."""
-        self._exercise_prompt = None
-        self._coaching_mode = False
-        self._exercise_callback = None
+    def clear_coaching(self):
+        """Exit coaching mode."""
+        self._coaching_prompt = None
+        self._coaching_active = False
+        self.max_tokens = getattr(self, '_saved_max_tokens', 512)
         self.temperature = 0.7
-        logger.info("Exited exercise coaching mode")
+        logger.info("Coaching mode deactivated")
+
+    @property
+    def coaching_active(self) -> bool:
+        return self._coaching_active
 
     async def process_frame(self, image: Image.Image, prompt: Optional[str] = None) -> None:
         """
         Process a frame asynchronously. Updates self.current_response when done.
-        In coaching mode, uses the exercise prompt and parses JSON.
+        In coaching mode, uses the coaching prompt.
         If already processing, this call is skipped.
         """
         if self._processing_lock.locked():
@@ -221,19 +225,11 @@ class VLMService:
             self.is_processing = True
             try:
                 effective_prompt = prompt
-                if self._coaching_mode and self._exercise_prompt:
-                    effective_prompt = self._exercise_prompt
+                if self._coaching_active and self._coaching_prompt:
+                    effective_prompt = self._coaching_prompt
 
                 response = await self.analyze_image(image, effective_prompt)
                 self.current_response = response
-
-                if self._coaching_mode and self._exercise_callback:
-                    parsed = parse_json_response(response)
-                    if parsed:
-                        try:
-                            await self._exercise_callback(parsed)
-                        except Exception as e:
-                            logger.error(f"Exercise callback error: {e}")
             finally:
                 self.is_processing = False
 

@@ -1,7 +1,6 @@
 """
 Exercise Library for PT Rehab Coach
-Defines exercises with form criteria, phase definitions, VLM prompt templates,
-and ROM (Range of Motion) joint mappings for automatic angle measurement.
+Defines exercises with form criteria, phase definitions, and VLM prompt templates.
 """
 
 from dataclasses import dataclass, field, asdict
@@ -13,9 +12,9 @@ class ROMTarget:
     """ROM measurement target for an exercise."""
     joint: str
     movement: str
-    side: str  # "left", "right", "both"
-    target_angle: float  # normal/goal ROM in degrees
-    min_angle: float = 0.0  # angle at start position
+    side: str
+    target_angle: float
+    min_angle: float = 0.0
 
 
 @dataclass
@@ -29,14 +28,15 @@ class Exercise:
     phases: list[str]
     rep_start_phase: str
     rep_end_phase: str
+    # MediaPipe joint angle tracking for rep counting
+    # Tuple of (landmark_a, landmark_b, landmark_c) -- angle measured at b
     rom_targets: list[ROMTarget] = field(default_factory=list)
     primary_joint: Optional[tuple[str, str, str]] = None
     rep_down_threshold: float = 90.0
     rep_up_threshold: float = 150.0
 
     def to_dict(self) -> dict:
-        d = asdict(self)
-        return d
+        return asdict(self)
 
     def _rom_prompt_section(self) -> str:
         if not self.rom_targets:
@@ -44,7 +44,7 @@ class Exercise:
         targets_desc = []
         for rt in self.rom_targets:
             targets_desc.append(
-                f"{rt.joint} {rt.movement} ({rt.side} side): target {rt.target_angle}°"
+                f"{rt.joint} {rt.movement} ({rt.side} side): target {rt.target_angle}\u00b0"
             )
         targets_str = "; ".join(targets_desc)
         rom_fields = ', '.join(
@@ -52,12 +52,12 @@ class Exercise:
             for rt in self.rom_targets
         )
         return (
-            f"\nROM MEASUREMENT — ALWAYS estimate the current joint angle in degrees, even if the form is wrong or incomplete:\n"
+            f"\nROM MEASUREMENT \u2014 ALWAYS estimate the current joint angle in degrees, even if the form is wrong or incomplete:\n"
             f"  {targets_str}\n"
             f"IMPORTANT: Report the patient's ACTUAL current angle, not the ideal angle. "
-            f"If a patient's knee is only bent to 40°, report 40, not the target.\n"
+            f"If a patient's knee is only bent to 40\u00b0, report 40, not the target.\n"
             f"Include in your JSON: {rom_fields}\n"
-            f"Also include angle coaching in your feedback, e.g. 'Your knee is at 40° — try to reach 90°. You need 50° more.'\n"
+            f"Also include angle coaching in your feedback, e.g. 'Your knee is at 40\u00b0 \u2014 try to reach 90\u00b0. You need 50\u00b0 more.'\n"
         )
 
     def build_vlm_prompt(self) -> str:
@@ -92,6 +92,19 @@ class Exercise:
 
 
 EXERCISES: list[Exercise] = [
+    Exercise(
+        id="general",
+        name="General Coach (Auto-Detect)",
+        category="general",
+        description="The AI coach will automatically detect what exercise you are performing and provide posture tips and encouragement.",
+        correct_form="Maintain good posture, controlled movements, and full range of motion.",
+        common_mistakes=["Poor posture", "Rushing through movements", "Limited range of motion"],
+        phases=["active"],
+        rep_start_phase="active",
+        rep_end_phase="active",
+        rom_targets=[],
+        primary_joint=None,
+    ),
     Exercise(
         id="squat",
         name="Bodyweight Squat",
