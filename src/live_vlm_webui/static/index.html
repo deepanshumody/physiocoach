@@ -712,6 +712,7 @@ function endSession() {
 
 function onSessionEnded(data) {
     sessionActive = false; sessionPaused = false; clearInterval(timerInterval);
+    sessionTimerEl.style.display = 'none';
     startBtn.style.display = 'flex'; pauseBtn.style.display = 'none'; endBtn.style.display = 'none';
     coachingText.textContent = 'Session ended. Great work!';
     if (data.summary) {

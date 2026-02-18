@@ -100,9 +100,8 @@ EXERCISES: list[Exercise] = [
         correct_form="Maintain good posture, controlled movements, and full range of motion.",
         common_mistakes=["Poor posture", "Rushing through movements", "Limited range of motion"],
         phases=["active"],
-        rep_start_phase="active",
-        rep_end_phase="active",
-        rom_targets=[],
+        rep_start_phase="start",
+        rep_end_phase="end",
         primary_joint=None,
     ),
     Exercise(

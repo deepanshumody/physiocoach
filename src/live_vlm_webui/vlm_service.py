@@ -190,14 +190,14 @@ class VLMService:
         else:
             logger.info(f"Updated prompt to: {new_prompt}")
 
-    def set_coaching_prompt(self, prompt: str):
+    def set_coaching_prompt(self, prompt: str, max_tokens: int = 80):
         """Enter coaching mode with a natural-language prompt."""
         self._coaching_prompt = prompt
         self._coaching_active = True
         self._saved_max_tokens = self.max_tokens
-        self.max_tokens = 80
+        self.max_tokens = max_tokens
         self.temperature = 0.6
-        logger.info("Coaching mode activated (max_tokens=80)")
+        logger.info(f"Coaching mode activated (max_tokens={max_tokens})")
 
     def clear_coaching(self):
         """Exit coaching mode."""
