@@ -68,6 +68,8 @@ MAX_CAMERAS = 2
 camera_tracks: dict = {}
 # Map camera slot → websocket so we can send renegotiation offers to specific clients
 camera_websockets: dict = {}
+# Tracks pending to be added on browser-initiated renegotiation
+pending_renegotiation_tracks: dict = {}
 
 
 def is_port_available(port, host="0.0.0.0"):
@@ -563,23 +565,19 @@ async def gpu_monitor_loop():
 
 
 async def _renegotiate(pc, slot: int, new_track):
-    """Add a new track to an existing peer connection and trigger renegotiation via WebSocket."""
+    """Tell the browser to initiate renegotiation so it can receive the new track."""
     ws = camera_websockets.get(slot)
     if not ws:
         logger.warning(f"Camera {slot}: No WebSocket for renegotiation")
         return
     try:
-        pc.addTrack(new_track)
-        offer = await pc.createOffer()
-        await pc.setLocalDescription(offer)
-        logger.info(f"Camera {slot}: Sending renegotiation offer")
-        await ws.send_json({
-            "type": "renegotiate",
-            "sdp": pc.localDescription.sdp,
-            "offer_type": pc.localDescription.type,
-        })
+        # Store the track so we can add it when the browser sends its offer
+        pending_renegotiation_tracks[slot] = new_track
+        # Tell the browser to create a new offer with a recvonly transceiver
+        logger.info(f"Camera {slot}: Requesting browser-initiated renegotiation")
+        await ws.send_json({"type": "request_renegotiate", "camera_id": slot})
     except Exception as e:
-        logger.error(f"Camera {slot}: Renegotiation failed: {e}")
+        logger.error(f"Camera {slot}: Renegotiation request failed: {e}")
 
 
 async def camera_status(request):
@@ -593,7 +591,7 @@ async def camera_status(request):
 
 
 async def renegotiate_answer(request):
-    """Receive renegotiation answer from a browser after we sent it a new offer."""
+    """Handle browser-initiated renegotiation offer — add pending track and return answer."""
     params = await request.json()
     camera_id = params.get("camera_id")
     sdp = params.get("sdp")
@@ -604,13 +602,27 @@ async def renegotiate_answer(request):
         return web.Response(status=404, content_type="application/json",
                             text=json.dumps({"error": "Camera slot not found"}))
     try:
+        # Set the browser's offer as remote description
         await pc.setRemoteDescription(RTCSessionDescription(sdp=sdp, type=sdp_type))
+
+        # Add the pending track now that remote description is set
+        pending_track = pending_renegotiation_tracks.pop(camera_id, None)
+        if pending_track:
+            pc.addTrack(pending_track)
+            logger.info(f"Camera {camera_id}: Added pending cross-relay track")
+
+        # Create and send answer back to browser
+        answer = await pc.createAnswer()
+        await pc.setLocalDescription(answer)
         logger.info(f"Camera {camera_id}: Renegotiation complete")
-        # Notify both browsers that dual camera is now active
+
         _broadcast_json({"type": "camera_connected", "camera_id": camera_id, "occupied": list(camera_slots.keys())})
-        return web.Response(content_type="application/json", text=json.dumps({"ok": True}))
+        return web.Response(content_type="application/json", text=json.dumps({
+            "sdp": pc.localDescription.sdp,
+            "type": pc.localDescription.type,
+        }))
     except Exception as e:
-        logger.error(f"Camera {camera_id}: Failed to set renegotiation answer: {e}")
+        logger.error(f"Camera {camera_id}: Renegotiation failed: {e}")
         return web.Response(status=500, content_type="application/json", text=json.dumps({"error": str(e)}))
 
 

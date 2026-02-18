@@ -830,18 +830,14 @@ async function handleMessage(data) {
         } else {
             if (data.metrics) updateMetrics(data.metrics);
         }
-    } else if (data.type === 'renegotiate') {
-        // Server is adding a new track (other camera) — complete the renegotiation
+    } else if (data.type === 'request_renegotiate') {
+        // Server wants us to add a recvonly transceiver and send a new offer
         if (peerConnection) {
             try {
-                await peerConnection.setRemoteDescription(new RTCSessionDescription({
-                    sdp: data.sdp,
-                    type: data.offer_type
-                }));
-                const answer = await peerConnection.createAnswer();
-                await peerConnection.setLocalDescription(answer);
-                // Send answer back to server
-                await fetch('/renegotiate', {
+                peerConnection.addTransceiver('video', { direction: 'recvonly' });
+                const offer = await peerConnection.createOffer();
+                await peerConnection.setLocalDescription(offer);
+                const res = await fetch('/renegotiate', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -850,6 +846,8 @@ async function handleMessage(data) {
                         type: peerConnection.localDescription.type
                     })
                 });
+                const answer = await res.json();
+                await peerConnection.setRemoteDescription(new RTCSessionDescription(answer));
                 console.log('Renegotiation complete');
             } catch (e) {
                 console.error('Renegotiation failed:', e);
