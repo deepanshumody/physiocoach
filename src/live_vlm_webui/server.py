@@ -871,18 +871,25 @@ async def offer(request):
                 other_track = camera_tracks.get(other_slot)
 
                 if other_pc and other_track:
-                    logger.info(f"Both cameras connected — waiting for Camera {other_slot} WebSocket then renegotiating")
+                    logger.info(f"Both cameras connected — waiting for both WebSockets then triggering viewer PCs")
+                    _slot = slot
+                    _other_slot = other_slot
+                    _pc = pc
+                    _other_pc = other_pc
+                    _processor_track = processor_track
+                    _other_track = other_track
                     async def wait_and_renegotiate():
+                        # Wait until BOTH camera WebSockets are registered (up to 60s)
                         for _ in range(120):
-                            if other_slot in camera_websockets:
+                            if _slot in camera_websockets and _other_slot in camera_websockets:
                                 break
                             await asyncio.sleep(0.5)
                         else:
-                            logger.warning(f"Camera {other_slot} WebSocket never registered, skipping")
+                            logger.warning(f"WebSockets for slots {_slot}/{_other_slot} never both registered, skipping")
                             return
-                        logger.info(f"Camera {other_slot} WebSocket ready — triggering viewer PC setup")
-                        await _renegotiate(pc, slot, relay.subscribe(other_track))
-                        await _renegotiate(other_pc, other_slot, relay.subscribe(processor_track))
+                        logger.info(f"Both WebSockets ready — triggering viewer PCs for slots {_slot} and {_other_slot}")
+                        await _renegotiate(_pc, _slot, relay.subscribe(_other_track))
+                        await _renegotiate(_other_pc, _other_slot, relay.subscribe(_processor_track))
                     asyncio.create_task(wait_and_renegotiate())
 
             @track.on("ended")

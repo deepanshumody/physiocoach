@@ -188,7 +188,7 @@
         </div>
         <div class="video-panel" id="sidePanel" style="display:none;">
             <video id="sideVideo" autoplay playsinline muted></video>
-            <div class="video-label">SIDE</div>
+            <div class="video-label">REMOTE</div>
         </div>
     </div>
 
@@ -211,14 +211,13 @@
         <div class="sidebar-section">
             <h3>Cameras</h3>
             <div class="cam-row">
-                <label>Front</label>
+                <label>My Camera</label>
                 <select class="camera-select" id="frontCameraSelect"><option value="">Loading...</option></select>
                 <button class="cam-btn" id="frontCamBtn"><i data-lucide="video"></i> Start</button>
             </div>
-            <div class="cam-row">
-                <label>Side</label>
-                <select class="camera-select" id="sideCameraSelect"><option value="">Loading...</option></select>
-                <button class="cam-btn" id="sideCamBtn"><i data-lucide="video"></i> Start</button>
+            <div class="cam-row" style="opacity:0.5;pointer-events:none;">
+                <label>Remote</label>
+                <span style="font-size:0.8rem;color:var(--text-muted);">Auto-connects when teammate joins</span>
             </div>
         </div>
 
@@ -459,16 +458,10 @@ async function setupViewerPC() {
     viewerPc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
     viewerPc.ontrack = (ev) => {
         if (ev.streams && ev.streams[0]) {
-            // Show the other camera's feed in whichever panel isn't active
-            const targetVid = cams.side.started ? frontVideo : sideVideo;
-            const targetPanel = cams.side.started ? document.getElementById('frontPanel') : sidePanel;
-            // Actually always show in the panel that isn't the user's own
-            const otherVid = (myCameraId === 1) ? sideVideo : frontVideo;
-            const otherPanel = (myCameraId === 1) ? sidePanel : document.getElementById('frontPanel');
-            otherVid.srcObject = ev.streams[0];
-            otherVid.play().catch(() => {});
-            otherPanel.style.display = 'flex';
-            console.log('Other camera feed received');
+            sideVideo.srcObject = ev.streams[0];
+            sideVideo.play().catch(() => {});
+            sidePanel.style.display = 'flex';
+            console.log('Remote camera feed received');
         }
     };
     viewerPc.addTransceiver('video', { direction: 'recvonly' });
@@ -499,9 +492,8 @@ async function handleMessage(data) {
         // Other camera connected — viewer PC will be set up via view_other_camera
     } else if (data.type === 'camera_disconnected') {
         if (viewerPc) { viewerPc.close(); viewerPc = null; }
-        // Hide other camera's panel
-        const otherPanel = (myCameraId === 1) ? sidePanel : document.getElementById('frontPanel');
-        if (otherPanel) otherPanel.style.display = 'none';
+        sideVideo.srcObject = null;
+        sidePanel.style.display = 'none';
     } else if (data.type === 'pose_update') {
         const role = data.camera_role || 'front';
         if (typeof data.total_reps === 'number') { roleReps[role] = data.total_reps; updateMergedRepCount(); }
