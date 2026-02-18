@@ -461,6 +461,7 @@ async function setupViewerPC() {
             sideVideo.srcObject = ev.streams[0];
             sideVideo.play().catch(() => {});
             sidePanel.style.display = 'flex';
+            document.getElementById('videoArea').classList.add('dual');
             console.log('Remote camera feed received');
         }
     };
@@ -494,6 +495,7 @@ async function handleMessage(data) {
         if (viewerPc) { viewerPc.close(); viewerPc = null; }
         sideVideo.srcObject = null;
         sidePanel.style.display = 'none';
+        document.getElementById('videoArea').classList.remove('dual');
     } else if (data.type === 'pose_update') {
         const role = data.camera_role || 'front';
         if (typeof data.total_reps === 'number') { roleReps[role] = data.total_reps; updateMergedRepCount(); }
