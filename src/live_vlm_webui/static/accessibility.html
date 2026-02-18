@@ -1,0 +1,1522 @@
+<!--
+SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+SPDX-License-Identifier: Apache-2.0
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+    <title>Visual Assistant - Live VLM Accessibility</title>
+
+    <link rel="icon" type="image/svg+xml" href="favicon/favicon.svg">
+    <link rel="icon" type="image/x-icon" href="favicon/favicon.ico">
+    <link rel="icon" type="image/png" sizes="96x96" href="favicon/favicon-96x96.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="favicon/apple-touch-icon.png">
+
+    <style>
+        /* ===== Reset & Base ===== */
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        :root {
+            --bg: #000000;
+            --bg-card: #111111;
+            --bg-elevated: #1a1a1a;
+            --text: #ffffff;
+            --text-secondary: #cccccc;
+            --text-muted: #888888;
+            --accent: #76B900;
+            --accent-hover: #8BC919;
+            --accent-dim: rgba(118, 185, 0, 0.15);
+            --danger: #ff4444;
+            --danger-bg: rgba(255, 68, 68, 0.15);
+            --warning: #ffaa00;
+            --border: #333333;
+            --radius: 16px;
+            --radius-sm: 10px;
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            *, *::before, *::after {
+                animation-duration: 0.01ms !important;
+                transition-duration: 0.01ms !important;
+            }
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            min-height: 100dvh;
+            -webkit-text-size-adjust: 100%;
+            overflow-x: hidden;
+        }
+
+        :focus-visible {
+            outline: 3px solid var(--accent);
+            outline-offset: 2px;
+        }
+
+        /* ===== Header ===== */
+        .header {
+            background: var(--bg-card);
+            border-bottom: 1px solid var(--border);
+            padding: 12px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .header-left {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .header-left h1 {
+            font-size: 20px;
+            font-weight: 700;
+            color: var(--accent);
+        }
+
+        .header-left .subtitle {
+            font-size: 12px;
+            color: var(--text-muted);
+        }
+
+        .header-right {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .status-badge {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 13px;
+            color: var(--text-secondary);
+            padding: 4px 10px;
+            border-radius: 20px;
+            background: var(--bg-elevated);
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--text-muted);
+        }
+
+        .status-dot.connected { background: var(--accent); }
+        .status-dot.disconnected { background: var(--danger); }
+        .status-dot.streaming { background: var(--accent); animation: pulse 1.5s infinite; }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.4; }
+        }
+
+        .back-link {
+            color: var(--text-muted);
+            text-decoration: none;
+            font-size: 13px;
+            padding: 6px 10px;
+            border-radius: var(--radius-sm);
+            border: 1px solid var(--border);
+            transition: all 0.2s;
+        }
+
+        .back-link:hover { color: var(--text); border-color: var(--text-muted); }
+
+        /* ===== Main Layout ===== */
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        /* ===== Alert Bar ===== */
+        .alert-bar {
+            display: none;
+            align-items: center;
+            gap: 10px;
+            padding: 14px 18px;
+            border-radius: var(--radius);
+            background: var(--danger-bg);
+            border: 2px solid var(--danger);
+            font-size: 18px;
+            font-weight: 600;
+            color: var(--danger);
+            animation: alertFlash 0.6s ease-in-out;
+        }
+
+        .alert-bar.visible { display: flex; }
+
+        @keyframes alertFlash {
+            0%, 50% { background: rgba(255, 68, 68, 0.3); }
+            25%, 75% { background: var(--danger-bg); }
+        }
+
+        .alert-bar .alert-icon { font-size: 24px; flex-shrink: 0; }
+        .alert-bar .alert-text { flex: 1; }
+        .alert-bar .alert-dismiss {
+            background: none;
+            border: none;
+            color: var(--danger);
+            font-size: 20px;
+            cursor: pointer;
+            padding: 4px;
+        }
+
+        /* ===== Video Section ===== */
+        .video-section {
+            position: relative;
+            border-radius: var(--radius);
+            overflow: hidden;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            aspect-ratio: 16/9;
+        }
+
+        .video-section video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: block;
+        }
+
+        .video-section.hidden-video {
+            height: 4px;
+            aspect-ratio: unset;
+            border-radius: 2px;
+        }
+
+        .video-section.hidden-video video { display: none; }
+
+        .video-placeholder {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 12px;
+            color: var(--text-muted);
+            font-size: 16px;
+        }
+
+        .video-placeholder .icon { font-size: 48px; }
+
+        .video-controls {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            display: flex;
+            gap: 6px;
+            z-index: 10;
+        }
+
+        .video-control-btn {
+            background: rgba(0,0,0,0.6);
+            border: 1px solid rgba(255,255,255,0.2);
+            color: white;
+            padding: 6px 10px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 13px;
+            backdrop-filter: blur(8px);
+        }
+
+        .video-control-btn:hover { background: rgba(0,0,0,0.8); }
+        .video-control-btn.active { background: var(--accent); color: #000; border-color: var(--accent); }
+
+        /* ===== Description Section ===== */
+        .description-section {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 24px;
+            min-height: 120px;
+            position: relative;
+        }
+
+        .description-label {
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--accent);
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .description-text {
+            font-size: 22px;
+            line-height: 1.5;
+            color: var(--text);
+            word-wrap: break-word;
+        }
+
+        .description-text.placeholder {
+            color: var(--text-muted);
+            font-style: italic;
+        }
+
+        .description-meta {
+            margin-top: 12px;
+            font-size: 12px;
+            color: var(--text-muted);
+            display: flex;
+            gap: 16px;
+        }
+
+        .repeat-btn {
+            position: absolute;
+            top: 16px;
+            right: 16px;
+            background: var(--bg-elevated);
+            border: 1px solid var(--border);
+            color: var(--text-secondary);
+            width: 44px;
+            height: 44px;
+            border-radius: 50%;
+            cursor: pointer;
+            font-size: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+        }
+
+        .repeat-btn:hover { background: var(--accent-dim); color: var(--accent); border-color: var(--accent); }
+
+        /* ===== Mode Selector ===== */
+        .mode-section {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
+        }
+
+        .mode-btn {
+            background: var(--bg-card);
+            border: 2px solid var(--border);
+            border-radius: var(--radius);
+            padding: 18px 12px;
+            cursor: pointer;
+            text-align: center;
+            transition: all 0.2s;
+            color: var(--text-secondary);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+            min-height: 90px;
+            justify-content: center;
+        }
+
+        .mode-btn:hover {
+            border-color: var(--accent);
+            background: var(--accent-dim);
+            color: var(--text);
+        }
+
+        .mode-btn.active {
+            border-color: var(--accent);
+            background: var(--accent-dim);
+            color: var(--accent);
+        }
+
+        .mode-btn .mode-icon { font-size: 28px; }
+        .mode-btn .mode-label { font-size: 14px; font-weight: 600; }
+
+        /* ===== Controls Bar ===== */
+        .controls-bar {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .ctrl-btn {
+            flex: 1;
+            min-width: 0;
+            padding: 16px 12px;
+            border-radius: var(--radius);
+            border: 2px solid var(--border);
+            background: var(--bg-card);
+            color: var(--text-secondary);
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            min-height: 56px;
+        }
+
+        .ctrl-btn:hover { border-color: var(--text-muted); color: var(--text); }
+
+        .ctrl-btn.primary {
+            background: var(--accent);
+            color: #000;
+            border-color: var(--accent);
+            font-weight: 700;
+        }
+
+        .ctrl-btn.primary:hover { background: var(--accent-hover); }
+
+        .ctrl-btn.active {
+            background: var(--accent-dim);
+            border-color: var(--accent);
+            color: var(--accent);
+        }
+
+        .ctrl-btn.recording {
+            background: var(--danger-bg);
+            border-color: var(--danger);
+            color: var(--danger);
+            animation: recordPulse 1s infinite;
+        }
+
+        @keyframes recordPulse {
+            0%, 100% { border-color: var(--danger); }
+            50% { border-color: rgba(255, 68, 68, 0.3); }
+        }
+
+        .ctrl-btn:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+
+        .ctrl-btn .icon { font-size: 20px; }
+
+        /* ===== History Section ===== */
+        .history-section {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            overflow: hidden;
+        }
+
+        .history-header {
+            padding: 14px 18px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .history-header span {
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--text-secondary);
+        }
+
+        .history-toggle {
+            color: var(--text-muted);
+            font-size: 12px;
+            transition: transform 0.2s;
+        }
+
+        .history-list {
+            max-height: 0;
+            overflow-y: auto;
+            transition: max-height 0.3s ease;
+            border-top: 1px solid var(--border);
+        }
+
+        .history-list.expanded { max-height: 400px; }
+
+        .history-item {
+            padding: 12px 18px;
+            border-bottom: 1px solid var(--border);
+            font-size: 14px;
+            color: var(--text-secondary);
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .history-item:last-child { border-bottom: none; }
+        .history-item:hover { background: var(--bg-elevated); }
+
+        .history-item .history-time {
+            font-size: 11px;
+            color: var(--text-muted);
+            margin-bottom: 4px;
+        }
+
+        .history-item .history-mode {
+            display: inline-block;
+            font-size: 10px;
+            padding: 2px 6px;
+            border-radius: 4px;
+            background: var(--accent-dim);
+            color: var(--accent);
+            margin-left: 6px;
+        }
+
+        /* ===== Settings Panel ===== */
+        .settings-section {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            overflow: hidden;
+        }
+
+        .settings-header {
+            padding: 14px 18px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .settings-header span {
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--text-secondary);
+        }
+
+        .settings-body {
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.3s ease;
+            border-top: 1px solid var(--border);
+        }
+
+        .settings-body.expanded { max-height: 800px; overflow-y: auto; }
+
+        .setting-row {
+            padding: 14px 18px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .setting-row:last-child { border-bottom: none; }
+
+        .setting-row label {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-secondary);
+        }
+
+        .setting-row select,
+        .setting-row input[type="text"],
+        .setting-row input[type="number"],
+        .setting-row input[type="range"] {
+            width: 100%;
+            padding: 10px 12px;
+            border-radius: var(--radius-sm);
+            border: 1px solid var(--border);
+            background: var(--bg-elevated);
+            color: var(--text);
+            font-size: 14px;
+        }
+
+        .setting-row input[type="range"] {
+            padding: 0;
+            height: 6px;
+            -webkit-appearance: none;
+            appearance: none;
+            background: var(--border);
+            border-radius: 3px;
+            border: none;
+        }
+
+        .setting-row input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 22px;
+            height: 22px;
+            border-radius: 50%;
+            background: var(--accent);
+            cursor: pointer;
+        }
+
+        .setting-hint {
+            font-size: 11px;
+            color: var(--text-muted);
+        }
+
+        /* ===== Metrics Bar ===== */
+        .metrics-bar {
+            display: flex;
+            gap: 16px;
+            padding: 10px 18px;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            font-size: 12px;
+            color: var(--text-muted);
+            justify-content: center;
+        }
+
+        .metrics-bar .metric { display: flex; gap: 4px; }
+        .metrics-bar .metric-val { color: var(--accent); font-weight: 600; }
+
+        /* ===== Keyboard Shortcuts Help ===== */
+        .shortcuts-hint {
+            text-align: center;
+            font-size: 11px;
+            color: var(--text-muted);
+            padding: 8px;
+        }
+
+        kbd {
+            background: var(--bg-elevated);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            padding: 1px 5px;
+            font-family: monospace;
+            font-size: 11px;
+        }
+
+        /* ===== Mobile Optimizations ===== */
+        @media (max-width: 600px) {
+            .header { padding: 10px 14px; }
+            .header-left h1 { font-size: 17px; }
+            .container { padding: 10px; gap: 10px; }
+            .mode-section { grid-template-columns: repeat(2, 1fr); gap: 8px; }
+            .mode-btn { padding: 14px 8px; min-height: 76px; }
+            .mode-btn .mode-icon { font-size: 24px; }
+            .mode-btn .mode-label { font-size: 13px; }
+            .description-text { font-size: 19px; }
+            .description-section { padding: 18px; }
+            .controls-bar { gap: 8px; }
+            .ctrl-btn { padding: 14px 8px; font-size: 13px; min-height: 50px; }
+            .shortcuts-hint { display: none; }
+        }
+
+        @media (max-width: 380px) {
+            .mode-section { grid-template-columns: repeat(2, 1fr); }
+            .controls-bar { flex-wrap: wrap; }
+            .ctrl-btn { flex-basis: calc(50% - 4px); }
+        }
+
+        /* ===== Print hidden ===== */
+        @media print {
+            .header, .controls-bar, .mode-section, .settings-section, .video-section { display: none; }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Header -->
+    <header class="header" role="banner">
+        <div class="header-left">
+            <h1>Visual Assistant</h1>
+            <span class="subtitle">Accessibility Mode</span>
+        </div>
+        <div class="header-right">
+            <div class="status-badge" aria-live="polite">
+                <span class="status-dot" id="statusDot"></span>
+                <span id="statusText">Disconnected</span>
+            </div>
+            <a href="/" class="back-link" title="Switch to standard interface">Standard UI</a>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="container" role="main">
+
+        <!-- Safety Alert Bar -->
+        <div class="alert-bar" id="alertBar" role="alert" aria-live="assertive">
+            <span class="alert-icon" aria-hidden="true">&#9888;</span>
+            <span class="alert-text" id="alertText"></span>
+            <button class="alert-dismiss" id="alertDismiss" aria-label="Dismiss alert">&times;</button>
+        </div>
+
+        <!-- Video Feed -->
+        <div class="video-section" id="videoSection">
+            <video id="videoElement" autoplay playsinline muted aria-label="Camera feed"></video>
+            <div class="video-placeholder" id="videoPlaceholder">
+                <span class="icon" aria-hidden="true">&#128247;</span>
+                <span>Tap <strong>Start Camera</strong> to begin</span>
+            </div>
+            <div class="video-controls">
+                <button class="video-control-btn" id="hideVideoBtn" title="Toggle video visibility" aria-label="Toggle video visibility">
+                    Hide Video
+                </button>
+            </div>
+        </div>
+
+        <!-- Description Output -->
+        <div class="description-section" aria-live="polite" aria-atomic="true">
+            <div class="description-label">
+                <span id="modeIndicator">&#128065; Scene Description</span>
+            </div>
+            <p class="description-text placeholder" id="descriptionText">
+                Tap "Start Camera" then choose a mode below to begin.
+            </p>
+            <div class="description-meta" id="descriptionMeta" style="display:none;">
+                <span id="metaLatency">Latency: --</span>
+                <span id="metaCount">Inferences: --</span>
+            </div>
+            <button class="repeat-btn" id="repeatBtn" title="Repeat last description" aria-label="Repeat last description">
+                &#128264;
+            </button>
+        </div>
+
+        <!-- Mode Selector -->
+        <div class="mode-section" role="radiogroup" aria-label="Assistant mode">
+            <button class="mode-btn active" data-mode="describe" role="radio" aria-checked="true">
+                <span class="mode-icon" aria-hidden="true">&#128065;</span>
+                <span class="mode-label">Describe Scene</span>
+            </button>
+            <button class="mode-btn" data-mode="read" role="radio" aria-checked="false">
+                <span class="mode-icon" aria-hidden="true">&#128196;</span>
+                <span class="mode-label">Read Text</span>
+            </button>
+            <button class="mode-btn" data-mode="safety" role="radio" aria-checked="false">
+                <span class="mode-icon" aria-hidden="true">&#9888;</span>
+                <span class="mode-label">Check Safety</span>
+            </button>
+            <button class="mode-btn" data-mode="navigate" role="radio" aria-checked="false">
+                <span class="mode-icon" aria-hidden="true">&#129517;</span>
+                <span class="mode-label">Navigate</span>
+            </button>
+            <button class="mode-btn" data-mode="identify" role="radio" aria-checked="false">
+                <span class="mode-icon" aria-hidden="true">&#128269;</span>
+                <span class="mode-label">Identify Object</span>
+            </button>
+            <button class="mode-btn" data-mode="colors" role="radio" aria-checked="false">
+                <span class="mode-icon" aria-hidden="true">&#127912;</span>
+                <span class="mode-label">Describe Colors</span>
+            </button>
+        </div>
+
+        <!-- Control Buttons -->
+        <div class="controls-bar">
+            <button class="ctrl-btn primary" id="startBtn" aria-label="Start camera">
+                <span class="icon" aria-hidden="true">&#9654;</span> Start Camera
+            </button>
+            <button class="ctrl-btn" id="stopBtn" disabled aria-label="Stop camera">
+                <span class="icon" aria-hidden="true">&#9632;</span> Stop
+            </button>
+            <button class="ctrl-btn" id="voiceBtn" aria-label="Ask a question by voice">
+                <span class="icon" aria-hidden="true">&#127908;</span> Ask
+            </button>
+            <button class="ctrl-btn" id="ttsBtn" aria-label="Toggle text to speech">
+                <span class="icon" aria-hidden="true">&#128264;</span> Speaker
+            </button>
+            <button class="ctrl-btn" id="autoBtn" aria-label="Toggle continuous narration">
+                <span class="icon" aria-hidden="true">&#128260;</span> Auto
+            </button>
+        </div>
+
+        <!-- Metrics -->
+        <div class="metrics-bar" id="metricsBar" style="display:none;">
+            <div class="metric">Latency: <span class="metric-val" id="mLatency">--</span> ms</div>
+            <div class="metric">Avg: <span class="metric-val" id="mAvg">--</span> ms</div>
+            <div class="metric">Inferences: <span class="metric-val" id="mCount">--</span></div>
+        </div>
+
+        <!-- History -->
+        <div class="history-section">
+            <div class="history-header" id="historyToggle" aria-expanded="false">
+                <span>&#128340; History</span>
+                <span class="history-toggle" id="historyArrow">&#9660;</span>
+            </div>
+            <div class="history-list" id="historyList" role="log" aria-label="Description history"></div>
+        </div>
+
+        <!-- Settings -->
+        <div class="settings-section">
+            <div class="settings-header" id="settingsToggle" aria-expanded="false">
+                <span>&#9881; Settings</span>
+                <span class="history-toggle" id="settingsArrow">&#9660;</span>
+            </div>
+            <div class="settings-body" id="settingsBody">
+                <div class="setting-row">
+                    <label for="voiceSelect">Voice</label>
+                    <select id="voiceSelect" aria-label="Select TTS voice"></select>
+                </div>
+                <div class="setting-row">
+                    <label for="speechRate">Speech Speed: <span id="speechRateVal">1.0</span>x</label>
+                    <input type="range" id="speechRate" min="0.5" max="2.0" step="0.1" value="1.0" aria-label="Speech speed">
+                </div>
+                <div class="setting-row">
+                    <label for="processInterval">Analysis Frequency (frames)</label>
+                    <input type="number" id="processInterval" value="15" min="1" max="300" aria-label="Process every N frames">
+                    <span class="setting-hint">Lower = more frequent analysis (uses more GPU). 15 is good for real-time assistance.</span>
+                </div>
+                <div class="setting-row">
+                    <label for="settingsApiBase">API Endpoint</label>
+                    <input type="text" id="settingsApiBase" value="http://localhost:11434/v1" aria-label="VLM API base URL">
+                </div>
+                <div class="setting-row">
+                    <label for="settingsApiKey">API Key (optional)</label>
+                    <input type="text" id="settingsApiKey" placeholder="sk-..." autocomplete="off" aria-label="API key">
+                </div>
+                <div class="setting-row">
+                    <label for="settingsModel">Model</label>
+                    <select id="settingsModel" aria-label="Select VLM model">
+                        <option value="">Loading models...</option>
+                    </select>
+                    <span class="setting-hint">Vision model for image analysis</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Keyboard Shortcuts -->
+        <div class="shortcuts-hint">
+            Shortcuts: <kbd>Space</kbd> Start/Stop &middot;
+            <kbd>D</kbd> Describe &middot;
+            <kbd>R</kbd> Read Text &middot;
+            <kbd>S</kbd> Safety &middot;
+            <kbd>N</kbd> Navigate &middot;
+            <kbd>V</kbd> Voice Ask &middot;
+            <kbd>A</kbd> Auto-Narrate &middot;
+            <kbd>.</kbd> Repeat
+        </div>
+
+    </main>
+
+    <script>
+    (function() {
+        'use strict';
+
+        // ===== Accessibility Prompts =====
+        const PROMPTS = {
+            describe: "You are a visual assistant helping a blind person understand their surroundings. Describe the scene concisely: what's directly in front, any people, key objects, and the general environment. Use spatial terms (left, right, ahead). Keep it to 2-3 clear sentences.",
+
+            read: "You are helping a blind person read text. Carefully read ALL text visible in this image - signs, labels, screens, documents, price tags, and any other text. Read the text exactly as written. If there are multiple text elements, list them in order of prominence. If no text is visible, say 'No text visible in the current view.'",
+
+            safety: "You are a safety assistant helping a blind person navigate safely. Scan for: obstacles at ground level, stairs or steps, moving vehicles, doors or openings, wet or slippery surfaces, overhanging objects, or any potential hazards. Start your response with either 'CLEAR: ' if the path ahead is safe, or 'CAUTION: ' if there is a potential hazard. Be specific about the location of hazards using directions like left, right, ahead, above, or below.",
+
+            navigate: "You are guiding a blind person through their environment. Describe: 1) What is directly ahead, 2) Is the path clear to walk, 3) Any turns or decision points, 4) Notable landmarks or reference points. Use clock positions where 12 means straight ahead, 3 means right, 9 means left, and 6 means behind. Keep instructions simple and actionable. Maximum 3 sentences.",
+
+            identify: "You are helping a blind person identify something they are pointing their camera at. Describe the main object in the center of the frame in detail: what it is, its color, approximate size, brand or model if visible, condition, and any other relevant identifying information. Be precise and specific.",
+
+            colors: "You are helping a blind person understand colors in their environment. Describe the dominant colors you see, including: walls, floor, furniture, clothing on people, and any notable colored objects. Be conversational and natural, for example 'The wall is painted a warm beige, and there is a bright red cushion on the grey sofa to your left.'"
+        };
+
+        const MODE_LABELS = {
+            describe: '&#128065; Scene Description',
+            read: '&#128196; Reading Text',
+            safety: '&#9888; Safety Check',
+            navigate: '&#129517; Navigation',
+            identify: '&#128269; Identifying Object',
+            colors: '&#127912; Describing Colors'
+        };
+
+        const MODE_MAX_TOKENS = {
+            describe: 200,
+            read: 400,
+            safety: 200,
+            navigate: 200,
+            identify: 300,
+            colors: 250
+        };
+
+        // ===== State =====
+        let currentMode = 'describe';
+        let ttsEnabled = true;
+        let autoNarrate = false;
+        let isStreaming = false;
+        let lastSpokenText = '';
+        let lastResponseText = '';
+        let websocket = null;
+        let peerConnection = null;
+        let localStream = null;
+        let history = [];
+        let audioCtx = null;
+
+        // ===== DOM Elements =====
+        const videoElement = document.getElementById('videoElement');
+        const videoPlaceholder = document.getElementById('videoPlaceholder');
+        const videoSection = document.getElementById('videoSection');
+        const descriptionText = document.getElementById('descriptionText');
+        const modeIndicator = document.getElementById('modeIndicator');
+        const startBtn = document.getElementById('startBtn');
+        const stopBtn = document.getElementById('stopBtn');
+        const voiceBtn = document.getElementById('voiceBtn');
+        const ttsBtn = document.getElementById('ttsBtn');
+        const autoBtn = document.getElementById('autoBtn');
+        const repeatBtn = document.getElementById('repeatBtn');
+        const alertBar = document.getElementById('alertBar');
+        const alertText = document.getElementById('alertText');
+        const alertDismiss = document.getElementById('alertDismiss');
+        const statusDot = document.getElementById('statusDot');
+        const statusText = document.getElementById('statusText');
+        const historyToggle = document.getElementById('historyToggle');
+        const historyList = document.getElementById('historyList');
+        const historyArrow = document.getElementById('historyArrow');
+        const settingsToggle = document.getElementById('settingsToggle');
+        const settingsBody = document.getElementById('settingsBody');
+        const settingsArrow = document.getElementById('settingsArrow');
+        const hideVideoBtn = document.getElementById('hideVideoBtn');
+        const metricsBar = document.getElementById('metricsBar');
+        const descriptionMeta = document.getElementById('descriptionMeta');
+
+        // ===== Audio Feedback =====
+        function getAudioCtx() {
+            if (!audioCtx) {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            return audioCtx;
+        }
+
+        function playTone(frequency, duration, type) {
+            type = type || 'sine';
+            try {
+                const ctx = getAudioCtx();
+                const osc = ctx.createOscillator();
+                const gain = ctx.createGain();
+                osc.type = type;
+                osc.frequency.value = frequency;
+                gain.gain.value = 0.15;
+                osc.connect(gain);
+                gain.connect(ctx.destination);
+                osc.start();
+                gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
+                osc.stop(ctx.currentTime + duration + 0.05);
+            } catch(e) { /* Audio not available */ }
+        }
+
+        function playNewResponseChime() { playTone(880, 0.12); }
+        function playAlertSound() {
+            playTone(440, 0.2, 'square');
+            setTimeout(function() { playTone(880, 0.3, 'square'); }, 220);
+        }
+        function playVoiceStartBeep() { playTone(660, 0.1); }
+        function playVoiceEndBeep() { playTone(440, 0.1); }
+
+        function vibrate(pattern) {
+            if (navigator.vibrate) {
+                navigator.vibrate(pattern);
+            }
+        }
+
+        // ===== TTS Engine =====
+        const synth = window.speechSynthesis;
+        let ttsVoice = null;
+        let ttsRate = 1.0;
+
+        function populateVoices() {
+            const voices = synth.getVoices();
+            const sel = document.getElementById('voiceSelect');
+            sel.innerHTML = '';
+            let defaultIdx = 0;
+            voices.forEach(function(v, i) {
+                const opt = document.createElement('option');
+                opt.value = i;
+                opt.textContent = v.name + ' (' + v.lang + ')';
+                if (v.default) defaultIdx = i;
+                sel.appendChild(opt);
+            });
+            sel.value = defaultIdx;
+            ttsVoice = voices[defaultIdx] || null;
+        }
+
+        if (synth.onvoiceschanged !== undefined) {
+            synth.onvoiceschanged = populateVoices;
+        }
+        populateVoices();
+
+        document.getElementById('voiceSelect').addEventListener('change', function(e) {
+            const voices = synth.getVoices();
+            ttsVoice = voices[parseInt(e.target.value)] || null;
+        });
+
+        document.getElementById('speechRate').addEventListener('input', function(e) {
+            ttsRate = parseFloat(e.target.value);
+            document.getElementById('speechRateVal').textContent = ttsRate.toFixed(1);
+        });
+
+        function speak(text, priority) {
+            if (!ttsEnabled || !text) return;
+
+            if (priority === 'high') {
+                synth.cancel();
+            }
+
+            const utterance = new SpeechSynthesisUtterance(text);
+            if (ttsVoice) utterance.voice = ttsVoice;
+            utterance.rate = ttsRate;
+            utterance.pitch = 1.0;
+            synth.speak(utterance);
+        }
+
+        function stopSpeaking() {
+            synth.cancel();
+        }
+
+        // ===== Voice Input =====
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        let recognition = null;
+        let isListening = false;
+
+        if (SpeechRecognition) {
+            recognition = new SpeechRecognition();
+            recognition.continuous = false;
+            recognition.interimResults = false;
+            recognition.lang = 'en-US';
+
+            recognition.onresult = function(event) {
+                const transcript = event.results[0][0].transcript;
+                handleVoiceCommand(transcript);
+            };
+
+            recognition.onend = function() {
+                isListening = false;
+                voiceBtn.classList.remove('recording');
+                voiceBtn.innerHTML = '<span class="icon" aria-hidden="true">&#127908;</span> Ask';
+                playVoiceEndBeep();
+            };
+
+            recognition.onerror = function(event) {
+                isListening = false;
+                voiceBtn.classList.remove('recording');
+                voiceBtn.innerHTML = '<span class="icon" aria-hidden="true">&#127908;</span> Ask';
+                if (event.error !== 'no-speech' && event.error !== 'aborted') {
+                    speak('Sorry, I could not understand that. Please try again.');
+                }
+            };
+        } else {
+            voiceBtn.disabled = true;
+            voiceBtn.title = 'Voice input not supported in this browser';
+        }
+
+        function startListening() {
+            if (!recognition || isListening) return;
+            stopSpeaking();
+            isListening = true;
+            voiceBtn.classList.add('recording');
+            voiceBtn.innerHTML = '<span class="icon" aria-hidden="true">&#128308;</span> Listening...';
+            playVoiceStartBeep();
+            try {
+                recognition.start();
+            } catch(e) {
+                isListening = false;
+                voiceBtn.classList.remove('recording');
+                voiceBtn.innerHTML = '<span class="icon" aria-hidden="true">&#127908;</span> Ask';
+            }
+        }
+
+        function stopListening() {
+            if (!recognition || !isListening) return;
+            recognition.stop();
+        }
+
+        function handleVoiceCommand(transcript) {
+            const lower = transcript.toLowerCase().trim();
+
+            // Check for known commands
+            if (lower === 'describe' || lower === 'describe scene' || lower.startsWith('what do you see')) {
+                setMode('describe');
+                return;
+            }
+            if (lower === 'read' || lower === 'read text' || lower.startsWith('read the text')) {
+                setMode('read');
+                return;
+            }
+            if (lower === 'safety' || lower === 'check safety' || lower.startsWith('is it safe')) {
+                setMode('safety');
+                return;
+            }
+            if (lower === 'navigate' || lower.startsWith('where should i go') || lower.startsWith('guide me')) {
+                setMode('navigate');
+                return;
+            }
+            if (lower === 'identify' || lower.startsWith('what is this') || lower.startsWith("what's this")) {
+                setMode('identify');
+                return;
+            }
+            if (lower === 'colors' || lower.startsWith('what color') || lower.startsWith('what colour')) {
+                setMode('colors');
+                return;
+            }
+            if (lower === 'stop' || lower === 'be quiet' || lower === 'shut up') {
+                stopSpeaking();
+                return;
+            }
+            if (lower === 'repeat' || lower === 'say again' || lower === 'say that again') {
+                repeatLastDescription();
+                return;
+            }
+
+            // Custom question: wrap with context and send as prompt
+            const customPrompt = "You are a visual assistant helping a blind person. The user asked: '" +
+                transcript + "'. Answer based on what you see in the image. Be clear, concise, and helpful. Maximum 3 sentences.";
+            sendPromptUpdate(customPrompt, 250);
+            speak('Let me look...', 'high');
+        }
+
+        // ===== Mode Management =====
+        function setMode(mode) {
+            currentMode = mode;
+
+            // Update UI
+            document.querySelectorAll('.mode-btn').forEach(function(btn) {
+                const isActive = btn.dataset.mode === mode;
+                btn.classList.toggle('active', isActive);
+                btn.setAttribute('aria-checked', isActive ? 'true' : 'false');
+            });
+
+            modeIndicator.innerHTML = MODE_LABELS[mode] || mode;
+
+            // Send prompt update
+            sendPromptUpdate(PROMPTS[mode], MODE_MAX_TOKENS[mode] || 200);
+
+            // Announce mode change
+            if (ttsEnabled && isStreaming) {
+                speak(mode.charAt(0).toUpperCase() + mode.slice(1) + ' mode', 'high');
+            }
+        }
+
+        document.querySelectorAll('.mode-btn').forEach(function(btn) {
+            btn.addEventListener('click', function() {
+                setMode(btn.dataset.mode);
+            });
+        });
+
+        // ===== WebSocket =====
+        function connectWebSocket() {
+            if (websocket && websocket.readyState === WebSocket.OPEN) return;
+
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = protocol + '//' + window.location.host + '/ws';
+            websocket = new WebSocket(wsUrl);
+
+            websocket.onopen = function() {
+                updateStatus('Connected', 'connected');
+                // Send initial mode prompt
+                sendPromptUpdate(PROMPTS[currentMode], MODE_MAX_TOKENS[currentMode] || 200);
+                // Set processing interval
+                sendProcessingInterval(parseInt(document.getElementById('processInterval').value) || 15);
+            };
+
+            websocket.onmessage = function(event) {
+                var data = JSON.parse(event.data);
+
+                if (data.type === 'vlm_response') {
+                    handleVLMResponse(data.text, data.metrics);
+                } else if (data.type === 'server_config') {
+                    if (data.model) {
+                        const sel = document.getElementById('settingsModel');
+                        // Check if model already in dropdown
+                        let found = false;
+                        for (let i = 0; i < sel.options.length; i++) {
+                            if (sel.options[i].value === data.model) {
+                                sel.value = data.model;
+                                found = true;
+                                break;
+                            }
+                        }
+                        if (!found) {
+                            sel.innerHTML = '<option value="' + data.model + '">' + data.model + '</option>';
+                            sel.value = data.model;
+                        }
+                    }
+                    if (data.api_base) {
+                        document.getElementById('settingsApiBase').value = data.api_base;
+                    }
+                    // After getting config, fetch model list
+                    fetchModels();
+                }
+            };
+
+            websocket.onerror = function() {
+                updateStatus('Error', 'disconnected');
+            };
+
+            websocket.onclose = function() {
+                websocket = null;
+                updateStatus('Reconnecting...', 'disconnected');
+                setTimeout(connectWebSocket, 2000);
+            };
+        }
+
+        function sendPromptUpdate(prompt, maxTokens) {
+            if (websocket && websocket.readyState === WebSocket.OPEN) {
+                websocket.send(JSON.stringify({
+                    type: 'update_prompt',
+                    prompt: prompt,
+                    max_tokens: maxTokens || 200
+                }));
+            }
+        }
+
+        function sendProcessingInterval(interval) {
+            if (websocket && websocket.readyState === WebSocket.OPEN) {
+                websocket.send(JSON.stringify({
+                    type: 'update_processing',
+                    process_every: interval
+                }));
+            }
+        }
+
+        function sendModelUpdate(model, apiBase, apiKey) {
+            if (websocket && websocket.readyState === WebSocket.OPEN) {
+                websocket.send(JSON.stringify({
+                    type: 'update_model',
+                    model: model,
+                    api_base: apiBase || '',
+                    api_key: apiKey || ''
+                }));
+            }
+        }
+
+        // ===== VLM Response Handler =====
+        function handleVLMResponse(text, metrics) {
+            if (!text || text === lastResponseText) return;
+            lastResponseText = text;
+
+            // Update description display
+            descriptionText.textContent = text;
+            descriptionText.classList.remove('placeholder');
+
+            // Update metrics
+            if (metrics) {
+                metricsBar.style.display = 'flex';
+                document.getElementById('mLatency').textContent = Math.round(metrics.last_latency_ms);
+                document.getElementById('mAvg').textContent = Math.round(metrics.avg_latency_ms);
+                document.getElementById('mCount').textContent = metrics.total_inferences;
+            }
+
+            // Check for safety alerts
+            const upperText = text.toUpperCase();
+            const isCaution = upperText.startsWith('CAUTION') || upperText.startsWith('WARNING') || upperText.startsWith('DANGER');
+
+            if (isCaution && currentMode === 'safety') {
+                showAlert(text);
+                playAlertSound();
+                vibrate([200, 100, 200, 100, 200]);
+                speak(text, 'high');
+                lastSpokenText = text;
+            } else {
+                hideAlert();
+                if (ttsEnabled && (autoNarrate || text !== lastSpokenText)) {
+                    playNewResponseChime();
+                    speak(text);
+                    lastSpokenText = text;
+                }
+            }
+
+            // Add to history
+            addToHistory(text, currentMode);
+        }
+
+        // ===== Alert Management =====
+        function showAlert(text) {
+            alertText.textContent = text;
+            alertBar.classList.add('visible');
+        }
+
+        function hideAlert() {
+            alertBar.classList.remove('visible');
+        }
+
+        alertDismiss.addEventListener('click', hideAlert);
+
+        // ===== History =====
+        function addToHistory(text, mode) {
+            const now = new Date();
+            const timeStr = now.toLocaleTimeString();
+            history.unshift({ text: text, mode: mode, time: timeStr });
+            if (history.length > 50) history.pop();
+            renderHistory();
+        }
+
+        function renderHistory() {
+            historyList.innerHTML = '';
+            history.forEach(function(item) {
+                var div = document.createElement('div');
+                div.className = 'history-item';
+                div.innerHTML = '<div class="history-time">' + item.time +
+                    '<span class="history-mode">' + item.mode + '</span></div>' +
+                    '<div>' + item.text + '</div>';
+                div.addEventListener('click', function() {
+                    speak(item.text, 'high');
+                });
+                historyList.appendChild(div);
+            });
+        }
+
+        historyToggle.addEventListener('click', function() {
+            var expanded = historyList.classList.toggle('expanded');
+            historyToggle.setAttribute('aria-expanded', expanded);
+            historyArrow.innerHTML = expanded ? '&#9650;' : '&#9660;';
+        });
+
+        // ===== Settings =====
+        settingsToggle.addEventListener('click', function() {
+            var expanded = settingsBody.classList.toggle('expanded');
+            settingsToggle.setAttribute('aria-expanded', expanded);
+            settingsArrow.innerHTML = expanded ? '&#9650;' : '&#9660;';
+        });
+
+        document.getElementById('processInterval').addEventListener('change', function(e) {
+            const val = parseInt(e.target.value);
+            if (val >= 1 && val <= 300) {
+                sendProcessingInterval(val);
+            }
+        });
+
+        document.getElementById('settingsModel').addEventListener('change', function(e) {
+            if (e.target.value) {
+                sendModelUpdate(
+                    e.target.value,
+                    document.getElementById('settingsApiBase').value,
+                    document.getElementById('settingsApiKey').value
+                );
+            }
+        });
+
+        document.getElementById('settingsApiBase').addEventListener('change', function() {
+            fetchModels();
+        });
+
+        async function fetchModels() {
+            try {
+                const apiBase = document.getElementById('settingsApiBase').value;
+                const apiKey = document.getElementById('settingsApiKey').value;
+                let url = '/models';
+                if (apiBase) {
+                    url += '?api_base=' + encodeURIComponent(apiBase);
+                    if (apiKey) url += '&api_key=' + encodeURIComponent(apiKey);
+                }
+                const resp = await fetch(url);
+                const data = await resp.json();
+                const sel = document.getElementById('settingsModel');
+                sel.innerHTML = '';
+                if (data.models && data.models.length > 0) {
+                    data.models.forEach(function(m) {
+                        const opt = document.createElement('option');
+                        opt.value = m.id;
+                        opt.textContent = m.name || m.id;
+                        if (m.current) opt.selected = true;
+                        sel.appendChild(opt);
+                    });
+                } else {
+                    sel.innerHTML = '<option value="">No models found</option>';
+                }
+            } catch(e) {
+                console.error('Error fetching models:', e);
+            }
+        }
+
+        // ===== WebRTC =====
+        async function startCamera() {
+            try {
+                updateStatus('Starting...', 'connected');
+                speak('Starting camera', 'high');
+
+                localStream = await navigator.mediaDevices.getUserMedia({
+                    video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'environment' },
+                    audio: false
+                });
+
+                videoElement.srcObject = localStream;
+                videoPlaceholder.style.display = 'none';
+
+                // Create WebRTC peer connection
+                peerConnection = new RTCPeerConnection({
+                    iceServers: [
+                        { urls: 'stun:stun.l.google.com:19302' },
+                        { urls: 'stun:stun1.l.google.com:19302' }
+                    ]
+                });
+
+                localStream.getTracks().forEach(function(track) {
+                    peerConnection.addTrack(track, localStream);
+                });
+
+                peerConnection.ontrack = function(event) {
+                    if (event.track.kind === 'video') {
+                        videoElement.srcObject = event.streams[0];
+                        videoElement.play().catch(function(){});
+                    }
+                };
+
+                peerConnection.oniceconnectionstatechange = function() {
+                    switch (peerConnection.iceConnectionState) {
+                        case 'connected':
+                            updateStatus('Streaming', 'streaming');
+                            break;
+                        case 'disconnected':
+                        case 'failed':
+                        case 'closed':
+                            updateStatus('Disconnected', 'disconnected');
+                            stopCamera();
+                            break;
+                    }
+                };
+
+                const offer = await peerConnection.createOffer();
+                await peerConnection.setLocalDescription(offer);
+
+                const response = await fetch('/offer', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        sdp: peerConnection.localDescription.sdp,
+                        type: peerConnection.localDescription.type
+                    })
+                });
+
+                const answer = await response.json();
+                await peerConnection.setRemoteDescription(new RTCSessionDescription(answer));
+
+                isStreaming = true;
+                startBtn.disabled = true;
+                stopBtn.disabled = false;
+                updateStatus('Streaming', 'streaming');
+                speak('Camera started. ' + currentMode.charAt(0).toUpperCase() + currentMode.slice(1) + ' mode active.');
+
+            } catch(err) {
+                console.error('Error starting camera:', err);
+                updateStatus('Error', 'disconnected');
+                speak('Failed to start camera. ' + err.message);
+            }
+        }
+
+        function stopCamera() {
+            if (peerConnection) {
+                peerConnection.close();
+                peerConnection = null;
+            }
+            if (localStream) {
+                localStream.getTracks().forEach(function(t) { t.stop(); });
+                localStream = null;
+            }
+            videoElement.srcObject = null;
+            videoPlaceholder.style.display = 'flex';
+            isStreaming = false;
+            startBtn.disabled = false;
+            stopBtn.disabled = true;
+            autoNarrate = false;
+            autoBtn.classList.remove('active');
+            updateStatus('Stopped', 'disconnected');
+            stopSpeaking();
+        }
+
+        // ===== Status =====
+        function updateStatus(text, state) {
+            statusText.textContent = text;
+            statusDot.className = 'status-dot ' + (state || '');
+        }
+
+        // ===== Repeat =====
+        function repeatLastDescription() {
+            if (lastSpokenText) {
+                speak(lastSpokenText, 'high');
+            } else {
+                speak('No description available yet.');
+            }
+        }
+
+        // ===== UI Event Handlers =====
+        startBtn.addEventListener('click', startCamera);
+        stopBtn.addEventListener('click', stopCamera);
+
+        voiceBtn.addEventListener('click', function() {
+            if (isListening) {
+                stopListening();
+            } else {
+                startListening();
+            }
+        });
+
+        ttsBtn.addEventListener('click', function() {
+            ttsEnabled = !ttsEnabled;
+            ttsBtn.classList.toggle('active', ttsEnabled);
+            ttsBtn.innerHTML = ttsEnabled
+                ? '<span class="icon" aria-hidden="true">&#128264;</span> Speaker'
+                : '<span class="icon" aria-hidden="true">&#128263;</span> Muted';
+            if (!ttsEnabled) stopSpeaking();
+        });
+        ttsBtn.classList.add('active');
+
+        autoBtn.addEventListener('click', function() {
+            autoNarrate = !autoNarrate;
+            autoBtn.classList.toggle('active', autoNarrate);
+            if (autoNarrate) {
+                speak('Auto narration on', 'high');
+                // Set faster processing for continuous mode
+                sendProcessingInterval(10);
+            } else {
+                speak('Auto narration off', 'high');
+                sendProcessingInterval(parseInt(document.getElementById('processInterval').value) || 15);
+            }
+        });
+
+        repeatBtn.addEventListener('click', repeatLastDescription);
+
+        hideVideoBtn.addEventListener('click', function() {
+            videoSection.classList.toggle('hidden-video');
+            const isHidden = videoSection.classList.contains('hidden-video');
+            hideVideoBtn.textContent = isHidden ? 'Show Video' : 'Hide Video';
+            hideVideoBtn.classList.toggle('active', isHidden);
+        });
+
+        // ===== Keyboard Shortcuts =====
+        document.addEventListener('keydown', function(e) {
+            // Don't intercept when typing in inputs
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
+
+            switch(e.key.toLowerCase()) {
+                case ' ':
+                    e.preventDefault();
+                    if (isStreaming) stopCamera(); else startCamera();
+                    break;
+                case 'd': setMode('describe'); break;
+                case 'r': setMode('read'); break;
+                case 's': setMode('safety'); break;
+                case 'n': setMode('navigate'); break;
+                case 'v':
+                    if (isListening) stopListening(); else startListening();
+                    break;
+                case 'a':
+                    autoBtn.click();
+                    break;
+                case '.':
+                    repeatLastDescription();
+                    break;
+                case 'escape':
+                    stopSpeaking();
+                    hideAlert();
+                    break;
+            }
+        });
+
+        // ===== Initialization =====
+        connectWebSocket();
+
+        // Announce page load
+        setTimeout(function() {
+            if (ttsEnabled) {
+                speak('Visual Assistant ready. Tap Start Camera to begin, then choose a mode like Describe Scene, Read Text, or Check Safety.');
+            }
+        }, 1000);
+
+    })();
+    </script>
+</body>
+</html>
