@@ -66,6 +66,8 @@ MAX_CAMERAS = 2
 # Store the processor track for each camera so we can relay it to other peers
 # camera_tracks = {1: VideoProcessorTrack, 2: VideoProcessorTrack}
 camera_tracks: dict = {}
+# Map camera slot → websocket so we can send renegotiation offers to specific clients
+camera_websockets: dict = {}
 
 
 def is_port_available(port, host="0.0.0.0"):
@@ -304,7 +306,14 @@ async def websocket_handler(request):
                 try:
                     data = json.loads(msg.data)
 
-                    if data.get("type") == "update_prompt":
+                    if data.get("type") == "register_camera":
+                        # Browser tells us which camera slot it was assigned
+                        cam_id = data.get("camera_id")
+                        if cam_id in (1, 2):
+                            camera_websockets[cam_id] = ws
+                            logger.info(f"Camera {cam_id} WebSocket registered")
+
+                    elif data.get("type") == "update_prompt":
                         new_prompt = data.get("prompt", "").strip()
                         max_tokens = data.get("max_tokens")
                         if new_prompt and vlm_service:
@@ -444,6 +453,11 @@ async def websocket_handler(request):
                 logger.error(f"WebSocket error: {ws.exception()}")
     finally:
         websockets.discard(ws)
+        # Remove from camera_websockets if registered
+        for cam_id, cam_ws in list(camera_websockets.items()):
+            if cam_ws is ws:
+                del camera_websockets[cam_id]
+                logger.info(f"Camera {cam_id} WebSocket unregistered")
         logger.info(f"WebSocket client disconnected. Total clients: {len(websockets)}")
 
     return ws
@@ -548,6 +562,26 @@ async def gpu_monitor_loop():
         logger.error(f"Error in GPU monitoring loop: {e}")
 
 
+async def _renegotiate(pc, slot: int, new_track):
+    """Add a new track to an existing peer connection and trigger renegotiation via WebSocket."""
+    ws = camera_websockets.get(slot)
+    if not ws:
+        logger.warning(f"Camera {slot}: No WebSocket for renegotiation")
+        return
+    try:
+        pc.addTrack(new_track)
+        offer = await pc.createOffer()
+        await pc.setLocalDescription(offer)
+        logger.info(f"Camera {slot}: Sending renegotiation offer")
+        await ws.send_json({
+            "type": "renegotiate",
+            "sdp": pc.localDescription.sdp,
+            "offer_type": pc.localDescription.type,
+        })
+    except Exception as e:
+        logger.error(f"Camera {slot}: Renegotiation failed: {e}")
+
+
 async def camera_status(request):
     """Return which camera slots are occupied"""
     occupied = list(camera_slots.keys())
@@ -556,6 +590,28 @@ async def camera_status(request):
         content_type="application/json",
         text=json.dumps({"occupied": occupied, "available": available, "max": MAX_CAMERAS}),
     )
+
+
+async def renegotiate_answer(request):
+    """Receive renegotiation answer from a browser after we sent it a new offer."""
+    params = await request.json()
+    camera_id = params.get("camera_id")
+    sdp = params.get("sdp")
+    sdp_type = params.get("type")
+
+    pc = camera_slots.get(camera_id)
+    if not pc:
+        return web.Response(status=404, content_type="application/json",
+                            text=json.dumps({"error": "Camera slot not found"}))
+    try:
+        await pc.setRemoteDescription(RTCSessionDescription(sdp=sdp, type=sdp_type))
+        logger.info(f"Camera {camera_id}: Renegotiation complete")
+        # Notify both browsers that dual camera is now active
+        _broadcast_json({"type": "camera_connected", "camera_id": camera_id, "occupied": list(camera_slots.keys())})
+        return web.Response(content_type="application/json", text=json.dumps({"ok": True}))
+    except Exception as e:
+        logger.error(f"Camera {camera_id}: Failed to set renegotiation answer: {e}")
+        return web.Response(status=500, content_type="application/json", text=json.dumps({"error": str(e)}))
 
 
 async def offer(request):
@@ -684,26 +740,16 @@ async def offer(request):
                 # Store this camera's processor track globally so other peers can subscribe
                 camera_tracks[slot] = processor_track
 
-                # If the other camera is already connected, cross-relay tracks
+                # If the other camera is already connected, cross-relay via renegotiation
                 other_slot = 2 if slot == 1 else 1
                 other_pc = camera_slots.get(other_slot)
                 other_track = camera_tracks.get(other_slot)
 
                 if other_pc and other_track:
-                    # Send other camera's feed to this peer
-                    pc.addTrack(relay.subscribe(other_track))
-                    logger.info(f"Camera {slot}: Added Camera {other_slot} relay track")
-
-                    # Send this camera's feed to the other peer
-                    other_pc.addTrack(relay.subscribe(processor_track))
-                    logger.info(f"Camera {other_slot}: Added Camera {slot} relay track (cross-relay)")
-
-                    # Notify all clients that both cameras are now active
-                    _broadcast_json({
-                        "type": "camera_connected",
-                        "camera_id": slot,
-                        "occupied": list(camera_slots.keys())
-                    })
+                    logger.info(f"Both cameras connected — triggering renegotiation")
+                    # Schedule renegotiation as async tasks
+                    asyncio.create_task(_renegotiate(pc, slot, relay.subscribe(other_track)))
+                    asyncio.create_task(_renegotiate(other_pc, other_slot, relay.subscribe(processor_track)))
 
             @track.on("ended")
             async def on_ended():
@@ -1036,6 +1082,7 @@ async def create_app(test_mode=False):
     app.router.add_get("/ws", websocket_handler)
     app.router.add_post("/offer", offer)
     app.router.add_get("/api/cameras", camera_status)
+    app.router.add_post("/renegotiate", renegotiate_answer)
 
     # Dashboard
     app.router.add_get("/dashboard", dashboard)
