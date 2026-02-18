@@ -35,11 +35,12 @@ from aiortc import (
 )
 from aiortc.contrib.media import MediaRelay
 
-from .vlm_service import VLMService
+from .vlm_service import VLMService, parse_json_response
 from .video_processor import VideoProcessorTrack
 from .gpu_monitor import create_monitor
 from .rtsp_track import RTSPVideoTrack
-from .rom_service import ROMService
+from .exercise_library import get_exercise, get_all_exercises, EXERCISE_MAP
+from .session_manager import SessionManager
 
 # Configure logging
 logging.basicConfig(
@@ -55,7 +56,8 @@ websockets = set()  # Track active WebSocket connections
 gpu_monitor = None  # GPU monitoring instance
 gpu_monitor_task = None  # Background task for GPU monitoring
 rtsp_tracks = {}  # Track active RTSP streams {session_id: (rtsp_track, processor_track)}
-rom_service = ROMService()  # ROM measurement service
+session_manager: SessionManager = None  # PT session tracking
+active_exercise_id: str = None  # Currently selected exercise
 
 
 def is_port_available(port, host="0.0.0.0"):
@@ -362,6 +364,49 @@ async def websocket_handler(request):
                         except ValueError:
                             logger.error(f"Invalid processing interval: {process_every}")
 
+                    elif data.get("type") == "select_exercise":
+                        exercise_id = data.get("exercise_id", "")
+                        global active_exercise_id
+                        ex = get_exercise(exercise_id)
+                        if ex:
+                            active_exercise_id = exercise_id
+                            vlm_service.set_exercise_mode(ex.build_vlm_prompt(), callback=_on_exercise_frame)
+                            await ws.send_json({"type": "exercise_selected", "exercise": ex.to_dict()})
+                            logger.info(f"Exercise selected: {ex.name}")
+                        else:
+                            await ws.send_json({"type": "error", "message": f"Unknown exercise: {exercise_id}"})
+
+                    elif data.get("type") == "start_exercise_session":
+                        exercise_id = data.get("exercise_id") or active_exercise_id
+                        if not exercise_id:
+                            await ws.send_json({"type": "error", "message": "No exercise selected"})
+                        else:
+                            ex = get_exercise(exercise_id)
+                            if ex:
+                                active_exercise_id = exercise_id
+                                vlm_service.set_exercise_mode(ex.build_vlm_prompt(), callback=_on_exercise_frame)
+                                VideoProcessorTrack._coaching_active = True
+                                sid = await session_manager.start_session(exercise_id)
+                                await ws.send_json({"type": "session_started", "session_id": sid, "exercise": ex.to_dict()})
+                                logger.info(f"Exercise session {sid} started: {ex.name}")
+
+                    elif data.get("type") == "pause_session":
+                        session_manager.pause_session()
+                        await ws.send_json({"type": "session_paused"})
+
+                    elif data.get("type") == "resume_session":
+                        session_manager.resume_session()
+                        await ws.send_json({"type": "session_resumed"})
+
+                    elif data.get("type") == "end_exercise_session":
+                        VideoProcessorTrack._coaching_active = False
+                        vlm_service.clear_exercise_mode()
+                        summary = await session_manager.end_session()
+                        if summary:
+                            _broadcast_json({"type": "session_summary", **summary})
+                            logger.info(f"Session ended: {summary.get('total_reps')} reps")
+                        await ws.send_json({"type": "session_ended", "summary": summary})
+
                     elif data.get("type") == "update_max_latency":
                         max_latency = data.get("max_latency", 0.0)
                         try:
@@ -383,64 +428,6 @@ async def websocket_handler(request):
                                 logger.warning(f"Max latency out of range (0-10.0): {max_latency}")
                         except ValueError:
                             logger.error(f"Invalid max latency value: {max_latency}")
-
-                    elif data.get("type") == "rom_enable":
-                        joint = data.get("joint", "knee")
-                        side = data.get("side", "right")
-                        rom_service.enabled = True
-                        rom_service.current_joint = joint
-                        rom_service.current_side = side
-
-                        from .video_processor import VideoProcessorTrack
-                        VideoProcessorTrack.rom_mode = True
-                        VideoProcessorTrack.rom_joint = joint
-                        VideoProcessorTrack.rom_side = side
-
-                        if vlm_service:
-                            rom_prompt = rom_service.get_rom_prompt(joint, side)
-                            vlm_service.update_prompt(rom_prompt, max_tokens=1024)
-
-                        logger.info(f"ROM mode enabled: {side} {joint}")
-                        await ws.send_json({
-                            "type": "rom_enabled",
-                            "joint": joint,
-                            "side": side,
-                            "reference": rom_service.get_reference_data(joint),
-                        })
-
-                    elif data.get("type") == "rom_disable":
-                        rom_service.enabled = False
-                        from .video_processor import VideoProcessorTrack
-                        VideoProcessorTrack.rom_mode = False
-                        logger.info("ROM mode disabled")
-                        await ws.send_json({"type": "rom_disabled"})
-
-                    elif data.get("type") == "rom_update_joint":
-                        joint = data.get("joint", "knee")
-                        side = data.get("side", "right")
-                        rom_service.current_joint = joint
-                        rom_service.current_side = side
-
-                        from .video_processor import VideoProcessorTrack
-                        VideoProcessorTrack.rom_joint = joint
-                        VideoProcessorTrack.rom_side = side
-
-                        if vlm_service and rom_service.enabled:
-                            rom_prompt = rom_service.get_rom_prompt(joint, side)
-                            vlm_service.update_prompt(rom_prompt, max_tokens=1024)
-
-                        logger.info(f"ROM joint updated: {side} {joint}")
-                        await ws.send_json({
-                            "type": "rom_joint_updated",
-                            "joint": joint,
-                            "side": side,
-                            "reference": rom_service.get_reference_data(joint),
-                        })
-
-                    elif data.get("type") == "rom_clear_history":
-                        rom_service.clear_history()
-                        logger.info("ROM history cleared")
-                        await ws.send_json({"type": "rom_history_cleared"})
                 except json.JSONDecodeError:
                     logger.error("Invalid JSON from client")
                 except Exception as e:
@@ -459,38 +446,13 @@ def broadcast_text_update(text: str, metrics: dict):
     if not websockets:
         return
 
-    # If ROM mode is active, parse VLM response for ROM data
-    if rom_service.enabled:
-        parsed = rom_service.parse_vlm_response(text)
-        if parsed:
-            rom_results = rom_service.record_measurement(parsed)
-            progress = rom_service.get_progress(
-                rom_service.current_joint
-            )
-            rom_message = json.dumps({
-                "type": "rom_measurement",
-                "raw_text": text,
-                "parsed": parsed,
-                "results": rom_results,
-                "progress": progress,
-                "metrics": metrics,
-            })
-            dead_websockets = set()
-            for ws in websockets:
-                try:
-                    asyncio.create_task(ws.send_str(rom_message))
-                except Exception as e:
-                    logger.error(f"Error sending ROM data to websocket: {e}")
-                    dead_websockets.add(ws)
-            websockets.difference_update(dead_websockets)
-            return
-
     message = json.dumps({"type": "vlm_response", "text": text, "metrics": metrics})
 
     # Send to all connected clients
     dead_websockets = set()
     for ws in websockets:
         try:
+            # Use asyncio to send without blocking
             asyncio.create_task(ws.send_str(message))
         except Exception as e:
             logger.error(f"Error sending to websocket: {e}")
@@ -518,6 +480,32 @@ def broadcast_gpu_stats(stats: dict):
 
     # Clean up dead connections
     websockets.difference_update(dead_websockets)
+
+
+def _broadcast_json(data: dict):
+    """Broadcast a JSON message to all connected WebSocket clients."""
+    if not websockets:
+        return
+    message = json.dumps(data)
+    dead = set()
+    for ws in websockets:
+        try:
+            asyncio.create_task(ws.send_str(message))
+        except Exception:
+            dead.add(ws)
+    websockets.difference_update(dead)
+
+
+async def _on_exercise_frame(parsed: dict):
+    """Callback invoked by VLMService when a coaching-mode frame is analysed."""
+    if not session_manager or not session_manager.active:
+        _broadcast_json({"type": "exercise_update", **parsed})
+        return
+
+    update = await session_manager.record_frame(parsed)
+    _broadcast_json({"type": "exercise_update", **update})
+    if update.get("rep_completed"):
+        _broadcast_json({"type": "rep_counted", "total_reps": update["total_reps"]})
 
 
 async def gpu_monitor_loop():
@@ -804,6 +792,49 @@ async def rtsp_status(request):
         )
 
 
+async def dashboard(request):
+    """Serve the progress dashboard page"""
+    content = open(
+        os.path.join(os.path.dirname(__file__), "static", "dashboard.html"), "r"
+    ).read()
+    return web.Response(content_type="text/html", text=content)
+
+
+async def api_exercises(request):
+    """Return the full exercise library"""
+    return web.Response(
+        content_type="application/json",
+        text=json.dumps({"exercises": get_all_exercises()}),
+    )
+
+
+async def api_sessions(request):
+    """Return session history"""
+    limit = int(request.rel_url.query.get("limit", "50"))
+    offset = int(request.rel_url.query.get("offset", "0"))
+    sessions = await session_manager.get_sessions(limit, offset)
+    return web.Response(
+        content_type="application/json",
+        text=json.dumps({"sessions": sessions}),
+    )
+
+
+async def api_session_detail(request):
+    """Return detail for a single session"""
+    session_id = int(request.match_info["id"])
+    detail = await session_manager.get_session_detail(session_id)
+    if not detail:
+        return web.Response(status=404, text=json.dumps({"error": "not found"}))
+    return web.Response(content_type="application/json", text=json.dumps(detail))
+
+
+async def api_progress(request):
+    """Return progress data for charts"""
+    exercise_id = request.rel_url.query.get("exercise_id")
+    progress = await session_manager.get_progress(exercise_id)
+    return web.Response(content_type="application/json", text=json.dumps(progress))
+
+
 async def _stop_rtsp_session(session_id: str):
     """Helper function to stop an RTSP session"""
     if session_id in rtsp_tracks:
@@ -835,44 +866,13 @@ async def _stop_rtsp_session(session_id: str):
         logger.warning(f"RTSP session {session_id} not found")
 
 
-async def rom_reference(request):
-    """Get ROM clinical reference data"""
-    joint = request.rel_url.query.get("joint")
-    data = rom_service.get_reference_data(joint)
-    return web.Response(content_type="application/json", text=json.dumps(data))
-
-
-async def rom_history(request):
-    """Get ROM measurement history"""
-    joint = request.rel_url.query.get("joint")
-    limit = int(request.rel_url.query.get("limit", "50"))
-    history = rom_service.get_history(joint=joint, limit=limit)
-    summary = rom_service.get_session_summary()
-    return web.Response(
-        content_type="application/json",
-        text=json.dumps({"history": history, "summary": summary}),
-    )
-
-
-async def rom_progress(request):
-    """Get ROM progress data"""
-    joint = request.rel_url.query.get("joint")
-    movement = request.rel_url.query.get("movement")
-    progress = rom_service.get_progress(joint=joint, movement=movement)
-    return web.Response(content_type="application/json", text=json.dumps(progress))
-
-
-async def rom_clear(request):
-    """Clear ROM history"""
-    rom_service.clear_history()
-    return web.Response(
-        content_type="application/json", text=json.dumps({"status": "cleared"})
-    )
-
-
 async def on_startup(app):
     """Initialize resources on server startup"""
-    global gpu_monitor, gpu_monitor_task
+    global gpu_monitor, gpu_monitor_task, session_manager
+
+    # Initialize PT session manager
+    session_manager = SessionManager()
+    await session_manager.initialize()
 
     # Initialize GPU monitor
     try:
@@ -907,6 +907,11 @@ async def on_shutdown(app):
     if gpu_monitor:
         gpu_monitor.cleanup()
         logger.info("GPU monitor cleaned up")
+
+    # Close session manager
+    if session_manager:
+        await session_manager.close()
+        logger.info("Session manager closed")
 
     # Close all websockets
     for ws in list(websockets):
@@ -945,16 +950,19 @@ async def create_app(test_mode=False):
     app.router.add_get("/ws", websocket_handler)
     app.router.add_post("/offer", offer)
 
+    # Dashboard
+    app.router.add_get("/dashboard", dashboard)
+
+    # PT Coach API endpoints
+    app.router.add_get("/api/exercises", api_exercises)
+    app.router.add_get("/api/sessions", api_sessions)
+    app.router.add_get("/api/sessions/{id}", api_session_detail)
+    app.router.add_get("/api/progress", api_progress)
+
     # RTSP endpoints
     app.router.add_post("/api/rtsp/start", rtsp_start)
     app.router.add_post("/api/rtsp/stop", rtsp_stop)
     app.router.add_get("/api/rtsp/status", rtsp_status)
-
-    # ROM measurement endpoints
-    app.router.add_get("/api/rom/reference", rom_reference)
-    app.router.add_get("/api/rom/history", rom_history)
-    app.router.add_get("/api/rom/progress", rom_progress)
-    app.router.add_post("/api/rom/clear", rom_clear)
 
     # Serve static files (images, etc.)
     # Always serve from static/images within the package (works for both pip and dev installs)
