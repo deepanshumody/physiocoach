@@ -571,6 +571,7 @@ let lastSpokenTime = 0;
 // Multi-camera
 let myCameraId = null;
 let cam2Active = false;
+let viewerPc = null; // Second PC just for receiving other camera's feed
 
 // ─── DOM refs ───
 const videoEl = document.getElementById('videoElement');
@@ -790,6 +791,42 @@ function showCam2(visible) {
     cam2Active = visible;
 }
 
+async function setupViewerPC() {
+    if (viewerPc) { viewerPc.close(); viewerPc = null; }
+    viewerPc = new RTCPeerConnection({
+        iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+    });
+
+    viewerPc.ontrack = (event) => {
+        if (event.streams && event.streams[0]) {
+            const v2 = document.getElementById('videoElement2');
+            v2.srcObject = event.streams[0];
+            v2.play().catch(() => {});
+            showCam2(true);
+            console.log('Other camera feed received on viewer PC');
+        }
+    };
+
+    // Offer to receive video only
+    viewerPc.addTransceiver('video', { direction: 'recvonly' });
+    const offer = await viewerPc.createOffer();
+    await viewerPc.setLocalDescription(offer);
+
+    const res = await fetch('/offer_viewer', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            sdp: offer.sdp,
+            type: offer.type,
+            camera_id: myCameraId
+        })
+    });
+    const answer = await res.json();
+    if (answer.error) { console.error('Viewer PC error:', answer.error); return; }
+    await viewerPc.setRemoteDescription(new RTCSessionDescription(answer));
+    console.log('Viewer PC connected — waiting for other camera track');
+}
+
 // ─── WebSocket ───
 function connectWebSocket() {
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -833,29 +870,9 @@ async function handleMessage(data) {
         } else {
             if (data.metrics) updateMetrics(data.metrics);
         }
-    } else if (data.type === 'request_renegotiate') {
-        // Server wants us to add a recvonly transceiver and send a new offer
-        if (peerConnection) {
-            try {
-                peerConnection.addTransceiver('video', { direction: 'recvonly' });
-                const offer = await peerConnection.createOffer();
-                await peerConnection.setLocalDescription(offer);
-                const res = await fetch('/renegotiate', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        camera_id: myCameraId,
-                        sdp: peerConnection.localDescription.sdp,
-                        type: peerConnection.localDescription.type
-                    })
-                });
-                const answer = await res.json();
-                await peerConnection.setRemoteDescription(new RTCSessionDescription(answer));
-                console.log('Renegotiation complete');
-            } catch (e) {
-                console.error('Renegotiation failed:', e);
-            }
-        }
+    } else if (data.type === 'view_other_camera') {
+        // Server tells us to open a second PC to receive the other camera's feed
+        await setupViewerPC();
     } else if (data.type === 'camera_connected') {
         const occupied = data.occupied || [];
         if (occupied.includes(2) && !cam2Active) showCam2(true);

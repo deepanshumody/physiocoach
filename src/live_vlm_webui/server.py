@@ -532,7 +532,44 @@ async def _on_exercise_frame(parsed: dict):
         _broadcast_json({"type": "rep_counted", "total_reps": update["total_reps"]})
 
 
-async def gpu_monitor_loop():
+async def offer_viewer(request):
+    """Create a new peer connection that streams the other camera's feed to this viewer."""
+    params = await request.json()
+    offer_sdp = RTCSessionDescription(sdp=params["sdp"], type=params["type"])
+    requester_camera_id = params.get("camera_id")  # which camera is requesting to view the other
+
+    # Find the other camera's track
+    other_slot = 2 if requester_camera_id == 1 else 1
+    other_track = camera_tracks.get(other_slot)
+
+    if not other_track:
+        return web.Response(status=404, content_type="application/json",
+                            text=json.dumps({"error": "Other camera not connected yet"}))
+
+    config = RTCConfiguration(iceServers=[
+        RTCIceServer(urls=["stun:stun.l.google.com:19302"]),
+    ])
+    viewer_pc = RTCPeerConnection(configuration=config)
+    pcs.add(viewer_pc)
+
+    @viewer_pc.on("connectionstatechange")
+    async def on_state():
+        if viewer_pc.connectionState in ["failed", "closed"]:
+            await viewer_pc.close()
+            pcs.discard(viewer_pc)
+
+    # Add the other camera's track to this viewer connection
+    viewer_pc.addTrack(relay.subscribe(other_track))
+
+    await viewer_pc.setRemoteDescription(offer_sdp)
+    answer = await viewer_pc.createAnswer()
+    await viewer_pc.setLocalDescription(answer)
+
+    logger.info(f"Viewer PC created: Camera {requester_camera_id} will now see Camera {other_slot}")
+    return web.Response(content_type="application/json", text=json.dumps({
+        "sdp": viewer_pc.localDescription.sdp,
+        "type": viewer_pc.localDescription.type,
+    }))
     """Background task to periodically collect and broadcast GPU stats"""
     global gpu_monitor
 
@@ -565,19 +602,17 @@ async def gpu_monitor_loop():
 
 
 async def _renegotiate(pc, slot: int, new_track):
-    """Tell the browser to initiate renegotiation so it can receive the new track."""
+    """Tell the browser to open a second viewer PC to receive the other camera's feed."""
     ws = camera_websockets.get(slot)
     if not ws:
         logger.warning(f"Camera {slot}: No WebSocket for renegotiation")
         return
     try:
-        # Store the track so we can add it when the browser sends its offer
         pending_renegotiation_tracks[slot] = new_track
-        # Tell the browser to create a new offer with a recvonly transceiver
-        logger.info(f"Camera {slot}: Requesting browser-initiated renegotiation")
-        await ws.send_json({"type": "request_renegotiate", "camera_id": slot})
+        logger.info(f"Camera {slot}: Telling browser to open viewer PC")
+        await ws.send_json({"type": "view_other_camera", "camera_id": slot})
     except Exception as e:
-        logger.error(f"Camera {slot}: Renegotiation request failed: {e}")
+        logger.error(f"Camera {slot}: Failed to send view_other_camera: {e}")
 
 
 async def camera_status(request):
@@ -1104,6 +1139,7 @@ async def create_app(test_mode=False):
     app.router.add_post("/offer", offer)
     app.router.add_get("/api/cameras", camera_status)
     app.router.add_post("/renegotiate", renegotiate_answer)
+    app.router.add_post("/offer_viewer", offer_viewer)
 
     # Dashboard
     app.router.add_get("/dashboard", dashboard)
