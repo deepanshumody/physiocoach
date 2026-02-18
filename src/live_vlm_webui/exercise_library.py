@@ -8,6 +8,16 @@ from typing import Optional
 
 
 @dataclass
+class ROMTarget:
+    """ROM measurement target for an exercise."""
+    joint: str
+    movement: str
+    side: str
+    target_angle: float
+    min_angle: float = 0.0
+
+
+@dataclass
 class Exercise:
     id: str
     name: str
@@ -20,16 +30,46 @@ class Exercise:
     rep_end_phase: str
     # MediaPipe joint angle tracking for rep counting
     # Tuple of (landmark_a, landmark_b, landmark_c) -- angle measured at b
+    rom_targets: list[ROMTarget] = field(default_factory=list)
     primary_joint: Optional[tuple[str, str, str]] = None
-    rep_down_threshold: float = 90.0   # angle below this = "down" position
-    rep_up_threshold: float = 150.0    # angle above this = "up" position
+    rep_down_threshold: float = 90.0
+    rep_up_threshold: float = 150.0
 
     def to_dict(self) -> dict:
         return asdict(self)
 
+    def _rom_prompt_section(self) -> str:
+        if not self.rom_targets:
+            return ""
+        targets_desc = []
+        for rt in self.rom_targets:
+            targets_desc.append(
+                f"{rt.joint} {rt.movement} ({rt.side} side): target {rt.target_angle}\u00b0"
+            )
+        targets_str = "; ".join(targets_desc)
+        rom_fields = ', '.join(
+            f'"{rt.joint}_{rt.movement}_angle": <degrees>'
+            for rt in self.rom_targets
+        )
+        return (
+            f"\nROM MEASUREMENT \u2014 ALWAYS estimate the current joint angle in degrees, even if the form is wrong or incomplete:\n"
+            f"  {targets_str}\n"
+            f"IMPORTANT: Report the patient's ACTUAL current angle, not the ideal angle. "
+            f"If a patient's knee is only bent to 40\u00b0, report 40, not the target.\n"
+            f"Include in your JSON: {rom_fields}\n"
+            f"Also include angle coaching in your feedback, e.g. 'Your knee is at 40\u00b0 \u2014 try to reach 90\u00b0. You need 50\u00b0 more.'\n"
+        )
+
     def build_vlm_prompt(self) -> str:
         mistakes_str = "\n".join(f"  - {m}" for m in self.common_mistakes)
         phases_str = ", ".join(self.phases)
+        rom_section = self._rom_prompt_section()
+        rom_fields = ""
+        if self.rom_targets:
+            rom_fields = ", " + ", ".join(
+                f'"{rt.joint}_{rt.movement}_angle": <number or null>'
+                for rt in self.rom_targets
+            )
         return (
             f"You are an expert physical therapy coach. Analyze this image of a patient performing: {self.name}.\n"
             f"\n"
@@ -38,11 +78,13 @@ class Exercise:
             f"Correct form: {self.correct_form}\n"
             f"Movement phases (in order): {phases_str}\n"
             f"Common mistakes to watch for:\n{mistakes_str}\n"
+            f"{rom_section}"
             f"\n"
             f"Respond ONLY with a valid JSON object (no markdown, no extra text):\n"
             f'{{"exercise_detected": true/false, "phase": "<one of: {phases_str}>", '
             f'"form_score": <1-10>, "corrections": ["<specific correction>"], '
-            f'"rep_boundary": true/false, "feedback": "<brief encouraging or corrective message>"}}\n'
+            f'"rep_boundary": true/false, "feedback": "<brief encouraging or corrective message>"'
+            f'{rom_fields}}}\n'
             f"\n"
             f'Set "rep_boundary" to true ONLY when the person transitions from "{self.rep_end_phase}" back to "{self.rep_start_phase}" (one full rep just completed).\n'
             f"If you cannot see the person or they are not exercising, set exercise_detected to false."
@@ -78,6 +120,10 @@ EXERCISES: list[Exercise] = [
         phases=["standing", "descending", "bottom", "ascending"],
         rep_start_phase="standing",
         rep_end_phase="ascending",
+        rom_targets=[
+            ROMTarget(joint="knee", movement="flexion", side="both", target_angle=135),
+            ROMTarget(joint="hip", movement="flexion", side="both", target_angle=120),
+        ],
         primary_joint=("left_hip", "left_knee", "left_ankle"),
         rep_down_threshold=100,
         rep_up_threshold=155,
@@ -98,6 +144,10 @@ EXERCISES: list[Exercise] = [
         phases=["standing", "stepping", "lowered", "returning"],
         rep_start_phase="standing",
         rep_end_phase="returning",
+        rom_targets=[
+            ROMTarget(joint="knee", movement="flexion", side="both", target_angle=90),
+            ROMTarget(joint="hip", movement="flexion", side="both", target_angle=90),
+        ],
         primary_joint=("left_hip", "left_knee", "left_ankle"),
         rep_down_threshold=100,
         rep_up_threshold=155,
@@ -118,6 +168,9 @@ EXERCISES: list[Exercise] = [
         phases=["extended", "lowering", "chest_near_wall", "pushing_back"],
         rep_start_phase="extended",
         rep_end_phase="pushing_back",
+        rom_targets=[
+            ROMTarget(joint="elbow", movement="flexion", side="both", target_angle=90),
+        ],
         primary_joint=("left_shoulder", "left_elbow", "left_wrist"),
         rep_down_threshold=100,
         rep_up_threshold=155,
@@ -138,6 +191,9 @@ EXERCISES: list[Exercise] = [
         phases=["arms_down", "raising", "arms_up", "lowering"],
         rep_start_phase="arms_down",
         rep_end_phase="lowering",
+        rom_targets=[
+            ROMTarget(joint="shoulder", movement="abduction", side="both", target_angle=90),
+        ],
         primary_joint=("left_hip", "left_shoulder", "left_wrist"),
         rep_down_threshold=30,
         rep_up_threshold=70,
@@ -158,6 +214,9 @@ EXERCISES: list[Exercise] = [
         phases=["flat", "rising", "top", "lowering"],
         rep_start_phase="flat",
         rep_end_phase="lowering",
+        rom_targets=[
+            ROMTarget(joint="ankle", movement="plantarflexion", side="both", target_angle=50),
+        ],
         primary_joint=("left_hip", "left_knee", "left_ankle"),
         rep_down_threshold=160,
         rep_up_threshold=172,
@@ -178,6 +237,9 @@ EXERCISES: list[Exercise] = [
         phases=["knee_bent", "extending", "fully_extended", "lowering"],
         rep_start_phase="knee_bent",
         rep_end_phase="lowering",
+        rom_targets=[
+            ROMTarget(joint="knee", movement="extension", side="right", target_angle=0, min_angle=90),
+        ],
         primary_joint=("left_hip", "left_knee", "left_ankle"),
         rep_down_threshold=100,
         rep_up_threshold=155,
@@ -198,6 +260,9 @@ EXERCISES: list[Exercise] = [
         phases=["legs_together", "raising", "top", "lowering"],
         rep_start_phase="legs_together",
         rep_end_phase="lowering",
+        rom_targets=[
+            ROMTarget(joint="hip", movement="abduction", side="right", target_angle=45),
+        ],
         primary_joint=("left_shoulder", "left_hip", "left_ankle"),
         rep_down_threshold=155,
         rep_up_threshold=170,
@@ -218,6 +283,9 @@ EXERCISES: list[Exercise] = [
         phases=["legs_together", "lifting", "leg_out", "returning"],
         rep_start_phase="legs_together",
         rep_end_phase="returning",
+        rom_targets=[
+            ROMTarget(joint="hip", movement="abduction", side="right", target_angle=45),
+        ],
         primary_joint=("left_shoulder", "left_hip", "left_ankle"),
         rep_down_threshold=155,
         rep_up_threshold=170,
@@ -238,6 +306,9 @@ EXERCISES: list[Exercise] = [
         phases=["arms_extended", "curling", "top", "lowering"],
         rep_start_phase="arms_extended",
         rep_end_phase="lowering",
+        rom_targets=[
+            ROMTarget(joint="elbow", movement="flexion", side="both", target_angle=150),
+        ],
         primary_joint=("left_shoulder", "left_elbow", "left_wrist"),
         rep_down_threshold=50,
         rep_up_threshold=140,
@@ -258,6 +329,9 @@ EXERCISES: list[Exercise] = [
         phases=["center", "turning_right", "right", "returning_center", "turning_left", "left", "returning_center_2"],
         rep_start_phase="center",
         rep_end_phase="returning_center_2",
+        rom_targets=[
+            ROMTarget(joint="neck", movement="rotation", side="both", target_angle=80),
+        ],
     ),
 ]
 

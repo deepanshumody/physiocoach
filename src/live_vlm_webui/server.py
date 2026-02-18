@@ -103,6 +103,76 @@ camera_websockets: dict = {}
 pending_renegotiation_tracks: dict = {}
 
 
+def _build_coaching_prompt(exercise_id: str) -> str:
+    """Build a coaching prompt that also requests ROM angle estimates."""
+    ex = get_exercise(exercise_id) if exercise_id else None
+    base = DEFAULT_COACHING_PROMPT
+    if not ex or not ex.rom_targets:
+        return base
+    angle_parts = []
+    for rt in ex.rom_targets:
+        angle_parts.append(f"{rt.joint} {rt.movement} (target {rt.target_angle}\u00b0)")
+    angles_str = ", ".join(angle_parts)
+    return (
+        f"{base}\n\n"
+        f"ALSO estimate these joint angles in degrees: {angles_str}. "
+        f"Report the patient's ACTUAL current angle even if form is wrong. "
+        f"Include each angle in your response like: "
+        f"\"[ANGLE:{ex.rom_targets[0].joint}_{ex.rom_targets[0].movement}=XX]\". "
+        f"Tell the patient how many more degrees they need."
+    )
+
+
+def _extract_rom_from_text(text: str) -> list:
+    """Parse ROM angles from VLM coaching text using [ANGLE:joint_movement=XX] tags."""
+    import re as _re
+    if not active_exercise_id:
+        return []
+    ex = get_exercise(active_exercise_id)
+    if not ex or not ex.rom_targets:
+        return []
+
+    angles = []
+    for rt in ex.rom_targets:
+        key = f"{rt.joint}_{rt.movement}"
+        pattern = rf"\[ANGLE:{_re.escape(key)}=(\d+(?:\.\d+)?)\]"
+        match = _re.search(pattern, text)
+        if not match:
+            continue
+        angle = float(match.group(1))
+        target = rt.target_angle
+        remaining = max(0, target - angle)
+        pct = (angle / target * 100) if target > 0 else 0
+
+        if pct >= 90:
+            status, color = "Excellent", "#22c55e"
+            guidance = "Great range of motion!"
+        elif pct >= 70:
+            status, color = "Good", "#8BC34A"
+            guidance = f"{remaining:.0f}\u00b0 more to reach full target"
+        elif pct >= 50:
+            status, color = "Needs Work", "#f59e0b"
+            guidance = f"Try to go {remaining:.0f}\u00b0 further \u2014 you're halfway there"
+        else:
+            status, color = "Keep Going", "#ef4444"
+            guidance = f"You need {remaining:.0f}\u00b0 more \u2014 take it slow, keep pushing"
+
+        angles.append({
+            "joint": rt.joint,
+            "movement": rt.movement,
+            "side": rt.side,
+            "angle": round(angle, 1),
+            "target": target,
+            "remaining": round(remaining, 1),
+            "percent": round(pct, 1),
+            "status": status,
+            "color": color,
+            "guidance": guidance,
+            "label": f"{rt.joint} {rt.movement}".replace("_", " "),
+        })
+    return angles
+
+
 def is_port_available(port, host="0.0.0.0"):
     """Check if a port is available for binding"""
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
