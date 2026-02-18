@@ -64,10 +64,43 @@ active_exercise_id: str = None  # Currently selected exercise
 active_processor_tracks: set = set()  # Track active VideoProcessorTrack instances for pose config
 
 DEFAULT_COACHING_PROMPT = (
-    "You are a PT coach. Look at this exercise image and give ONE short correction or encouragement. "
-    "Name the exercise if you can tell. Max 2 sentences. No lists, no markdown. Example: "
-    "\"Nice squat depth! Try to keep your chest up more.\""
+    "You are an expert physical therapy coach analyzing a live exercise video frame.\n\n"
+    "STEP 1 — IDENTIFY: Look carefully at the person's body position and movement. "
+    "What exercise are they doing? If you cannot clearly identify an exercise (e.g. they are sitting, standing still, or the view is unclear), "
+    "respond ONLY with: 'Get into position to begin your exercise.'\n\n"
+    "STEP 2 — EVALUATE: If you identified an exercise, give ONE specific, actionable correction or encouragement about their form. "
+    "Focus on the most important thing you can see wrong or right.\n\n"
+    "Rules: Max 2 short sentences total. No lists. No markdown. No explanations. "
+    "Do not repeat the exercise name. Do not make up observations if the image is unclear."
 )
+
+FRONT_CAMERA_PROMPT = (
+    "You are an expert PT coach watching the FRONT view of someone exercising.\n\n"
+    "IDENTIFY the exercise from the front view. If unclear, say: 'Step in front of the camera to begin.'\n\n"
+    "If identified, give ONE correction about what you can see from the front: "
+    "symmetry (are both sides even?), alignment (knees tracking over toes?), shoulder position, hip level, or rep completion. "
+    "Max 2 short sentences. No lists. No markdown. Be specific and direct."
+)
+
+SIDE_CAMERA_PROMPT = (
+    "You are an expert PT coach watching the SIDE view of someone exercising.\n\n"
+    "IDENTIFY the exercise from the side view. If unclear, say: 'Position yourself sideways to the camera.'\n\n"
+    "If identified, give ONE correction about what you can see from the side: "
+    "spine angle, forward lean, knee bend depth, hip hinge, elbow angle, or posture. "
+    "Max 2 short sentences. No lists. No markdown. Be specific about the angle or depth you observe."
+)
+
+# Multi-camera support: track how many cameras are connected (max 2)
+# camera_slots = {1: pc, 2: pc}  maps slot number → peer connection
+camera_slots: dict = {}
+MAX_CAMERAS = 2
+# Store the processor track for each camera so we can relay it to other peers
+# camera_tracks = {1: VideoProcessorTrack, 2: VideoProcessorTrack}
+camera_tracks: dict = {}
+# Map camera slot → websocket so we can send renegotiation offers to specific clients
+camera_websockets: dict = {}
+# Tracks pending to be added on browser-initiated renegotiation
+pending_renegotiation_tracks: dict = {}
 
 
 def is_port_available(port, host="0.0.0.0"):
@@ -306,7 +339,14 @@ async def websocket_handler(request):
                 try:
                     data = json.loads(msg.data)
 
-                    if data.get("type") == "update_prompt":
+                    if data.get("type") == "register_camera":
+                        # Browser tells us which camera slot it was assigned
+                        cam_id = data.get("camera_id")
+                        if cam_id in (1, 2):
+                            camera_websockets[cam_id] = ws
+                            logger.info(f"Camera {cam_id} WebSocket registered")
+
+                    elif data.get("type") == "update_prompt":
                         new_prompt = data.get("prompt", "").strip()
                         max_tokens = data.get("max_tokens")
                         if new_prompt and vlm_service:
@@ -409,6 +449,15 @@ async def websocket_handler(request):
                             if pt.pose_detector.available:
                                 pt.pose_detector.clear_exercise()
 
+                        # Assign per-camera prompts based on connected slots
+                        for pt in active_processor_tracks:
+                            cam_id = getattr(pt, 'camera_id', 1)
+                            if len(camera_slots) >= 2:
+                                # Dual camera mode: front vs side prompts
+                                pt.coaching_prompt = FRONT_CAMERA_PROMPT if cam_id == 1 else SIDE_CAMERA_PROMPT
+                            else:
+                                pt.coaching_prompt = DEFAULT_COACHING_PROMPT
+
                         # Configure MediaPipe rep counting if a specific exercise is selected
                         if ex and ex.primary_joint:
                             for pt in active_processor_tracks:
@@ -502,6 +551,11 @@ async def websocket_handler(request):
                 logger.error(f"WebSocket error: {ws.exception()}")
     finally:
         websockets.discard(ws)
+        # Remove from camera_websockets if registered
+        for cam_id, cam_ws in list(camera_websockets.items()):
+            if cam_ws is ws:
+                del camera_websockets[cam_id]
+                logger.info(f"Camera {cam_id} WebSocket unregistered")
         logger.info(f"WebSocket client disconnected. Total clients: {len(websockets)}")
 
     return ws
@@ -510,17 +564,13 @@ async def websocket_handler(request):
 _last_coaching_text = ""
 _last_vlm_response = ""
 
-def broadcast_text_update(text: str, metrics: dict):
+def broadcast_text_update(text: str, metrics: dict, camera_id: int = 1):
     """Broadcast text update and metrics to all connected WebSocket clients"""
     global _last_coaching_text, _last_vlm_response
     if not websockets:
         return
 
-    if text == _last_vlm_response:
-        return
-    _last_vlm_response = text
-
-    _broadcast_json({"type": "vlm_response", "text": text, "metrics": metrics})
+    message = json.dumps({"type": "vlm_response", "text": text, "metrics": metrics, "camera_id": camera_id})
 
     if vlm_service and vlm_service.coaching_active and text and text != _last_coaching_text and not text.startswith("Error:") and text != "Initializing...":
         _last_coaching_text = text
@@ -581,7 +631,7 @@ def broadcast_gpu_stats(stats: dict):
 
 
 def _broadcast_json(data: dict):
-    """Broadcast a JSON message to all connected WebSocket clients."""
+    """Broadcast a JSON dict to all connected WebSocket clients."""
     if not websockets:
         return
     message = json.dumps(data)
@@ -621,6 +671,62 @@ async def gpu_monitor_loop():
     global gpu_monitor
 
     if not gpu_monitor:
+        return
+
+    try:
+        while True:
+            stats = gpu_monitor.get_stats()
+            if stats:
+                broadcast_gpu_stats(stats)
+            await asyncio.sleep(0.25)
+    except asyncio.CancelledError:
+        logger.info("GPU monitoring loop cancelled")
+    except Exception as e:
+        logger.error(f"Error in GPU monitoring loop: {e}")
+
+
+async def offer_viewer(request):
+    """Create a new peer connection that streams the other camera's feed to this viewer."""
+    params = await request.json()
+    offer_sdp = RTCSessionDescription(sdp=params["sdp"], type=params["type"])
+    requester_camera_id = params.get("camera_id")  # which camera is requesting to view the other
+
+    # Find the other camera's track
+    other_slot = 2 if requester_camera_id == 1 else 1
+    other_track = camera_tracks.get(other_slot)
+
+    if not other_track:
+        return web.Response(status=404, content_type="application/json",
+                            text=json.dumps({"error": "Other camera not connected yet"}))
+
+    config = RTCConfiguration(iceServers=[
+        RTCIceServer(urls=["stun:stun.l.google.com:19302"]),
+    ])
+    viewer_pc = RTCPeerConnection(configuration=config)
+    pcs.add(viewer_pc)
+
+    @viewer_pc.on("connectionstatechange")
+    async def on_state():
+        if viewer_pc.connectionState in ["failed", "closed"]:
+            await viewer_pc.close()
+            pcs.discard(viewer_pc)
+
+    # Add the other camera's track to this viewer connection
+    viewer_pc.addTrack(relay.subscribe(other_track))
+
+    await viewer_pc.setRemoteDescription(offer_sdp)
+    answer = await viewer_pc.createAnswer()
+    await viewer_pc.setLocalDescription(answer)
+
+    logger.info(f"Viewer PC created: Camera {requester_camera_id} will now see Camera {other_slot}")
+    return web.Response(content_type="application/json", text=json.dumps({
+        "sdp": viewer_pc.localDescription.sdp,
+        "type": viewer_pc.localDescription.type,
+    }))
+    """Background task to periodically collect and broadcast GPU stats"""
+    global gpu_monitor
+
+    if not gpu_monitor:
         logger.warning("GPU monitor not initialized, skipping monitoring")
         return
 
@@ -648,12 +754,89 @@ async def gpu_monitor_loop():
         logger.error(f"Error in GPU monitoring loop: {e}")
 
 
+async def _renegotiate(pc, slot: int, new_track):
+    """Tell the browser to open a second viewer PC to receive the other camera's feed."""
+    ws = camera_websockets.get(slot)
+    if not ws:
+        logger.warning(f"Camera {slot}: No WebSocket for renegotiation")
+        return
+    try:
+        pending_renegotiation_tracks[slot] = new_track
+        logger.info(f"Camera {slot}: Telling browser to open viewer PC")
+        await ws.send_json({"type": "view_other_camera", "camera_id": slot})
+    except Exception as e:
+        logger.error(f"Camera {slot}: Failed to send view_other_camera: {e}")
+
+
+async def camera_status(request):
+    """Return which camera slots are occupied"""
+    occupied = list(camera_slots.keys())
+    available = [s for s in range(1, MAX_CAMERAS + 1) if s not in camera_slots]
+    return web.Response(
+        content_type="application/json",
+        text=json.dumps({"occupied": occupied, "available": available, "max": MAX_CAMERAS}),
+    )
+
+
+async def renegotiate_answer(request):
+    """Handle browser-initiated renegotiation offer — add pending track and return answer."""
+    params = await request.json()
+    camera_id = params.get("camera_id")
+    sdp = params.get("sdp")
+    sdp_type = params.get("type")
+
+    pc = camera_slots.get(camera_id)
+    if not pc:
+        return web.Response(status=404, content_type="application/json",
+                            text=json.dumps({"error": "Camera slot not found"}))
+    try:
+        # Set the browser's offer as remote description
+        await pc.setRemoteDescription(RTCSessionDescription(sdp=sdp, type=sdp_type))
+
+        # Add the pending track now that remote description is set
+        pending_track = pending_renegotiation_tracks.pop(camera_id, None)
+        if pending_track:
+            pc.addTrack(pending_track)
+            logger.info(f"Camera {camera_id}: Added pending cross-relay track")
+
+        # Create and send answer back to browser
+        answer = await pc.createAnswer()
+        await pc.setLocalDescription(answer)
+        logger.info(f"Camera {camera_id}: Renegotiation complete")
+
+        _broadcast_json({"type": "camera_connected", "camera_id": camera_id, "occupied": list(camera_slots.keys())})
+        return web.Response(content_type="application/json", text=json.dumps({
+            "sdp": pc.localDescription.sdp,
+            "type": pc.localDescription.type,
+        }))
+    except Exception as e:
+        logger.error(f"Camera {camera_id}: Renegotiation failed: {e}")
+        return web.Response(status=500, content_type="application/json", text=json.dumps({"error": str(e)}))
+
+
 async def offer(request):
     """Handle WebRTC offer from client (supports both webcam and RTSP)"""
     params = await request.json()
     offer_sdp = RTCSessionDescription(sdp=params["sdp"], type=params["type"])
     rtsp_url = params.get("rtsp_url")
     camera_role = params.get("role", "front")
+
+    # Assign a camera slot (1 or 2)
+    assigned_slot = None
+    for slot in range(1, MAX_CAMERAS + 1):
+        if slot not in camera_slots:
+            assigned_slot = slot
+            break
+
+    if assigned_slot is None:
+        logger.warning("All camera slots are full, rejecting connection")
+        return web.Response(
+            status=409,
+            content_type="application/json",
+            text=json.dumps({"error": "All camera slots are full (max 2 cameras)"}),
+        )
+
+    logger.info(f"Assigning camera slot {assigned_slot} to new connection")
 
     # Create RTCPeerConnection with STUN servers for Docker/NAT compatibility
     config = RTCConfiguration(
@@ -664,34 +847,54 @@ async def offer(request):
     )
     pc = RTCPeerConnection(configuration=config)
     pcs.add(pc)
+    camera_slots[assigned_slot] = pc
+
+    # Notify all clients about the new camera connection
+    _broadcast_json({"type": "camera_connected", "camera_id": assigned_slot, "occupied": list(camera_slots.keys())})
 
     # Store RTSP track for cleanup
     rtsp_cleanup_track = None
 
+    # Capture slot for closures
+    slot = assigned_slot
+
     @pc.on("connectionstatechange")
     async def on_connectionstatechange():
-        logger.info(f"Connection state: {pc.connectionState}")
+        logger.info(f"Camera {slot} connection state: {pc.connectionState}")
         if pc.connectionState in ["failed", "closed"]:
-            # Clean up RTSP track if exists
             if rtsp_cleanup_track:
                 rtsp_cleanup_track.stop()
-                logger.info("RTSP track stopped on connection close")
             await pc.close()
             pcs.discard(pc)
+            if camera_slots.get(slot) is pc:
+                del camera_slots[slot]
+                camera_tracks.pop(slot, None)
+                camera_websockets.pop(slot, None)
+                pending_renegotiation_tracks.pop(slot, None)
+                logger.info(f"Camera slot {slot} freed")
+                _broadcast_json({"type": "camera_disconnected", "camera_id": slot, "occupied": list(camera_slots.keys())})
 
     @pc.on("iceconnectionstatechange")
     async def on_iceconnectionstatechange():
-        logger.info(f"ICE connection state: {pc.iceConnectionState}")
+        logger.info(f"Camera {slot} ICE connection state: {pc.iceConnectionState}")
         if pc.iceConnectionState == "failed":
-            logger.error("ICE connection failed - check firewall/NAT settings")
+            logger.error(f"Camera {slot} ICE connection failed - check firewall/NAT settings")
 
     @pc.on("icegatheringstatechange")
     async def on_icegatheringstatechange():
-        logger.info(f"ICE gathering state: {pc.iceGatheringState}")
+        logger.info(f"Camera {slot} ICE gathering state: {pc.iceGatheringState}")
+
+    # Build a camera-aware text callback
+    def make_camera_callback(cam_id):
+        def _cb(text, metrics):
+            broadcast_text_update(text, metrics, camera_id=cam_id)
+        return _cb
+
+    camera_callback = make_camera_callback(slot)
 
     # If RTSP URL provided, create RTSP track instead of waiting for browser track
     if rtsp_url:
-        logger.info(f"Creating RTSP track for: {rtsp_url}")
+        logger.info(f"Creating RTSP track for camera {slot}: {rtsp_url}")
         try:
             rtsp_track = RTSPVideoTrack(rtsp_url)
             rtsp_cleanup_track = rtsp_track  # Store for cleanup
@@ -704,17 +907,18 @@ async def offer(request):
 
             processor_track = VideoProcessorTrack(
                 relayed_rtsp, vlm_service,
-                text_callback=broadcast_text_update,
+                text_callback=camera_callback,
                 pose_callback=_on_pose_frame,
                 camera_role=camera_role,
             )
             active_processor_tracks.add(processor_track)
 
             pc.addTrack(processor_track)
-            logger.info(f"Added RTSP processor track ({camera_role}) to peer connection")
+            logger.info(f"Camera {slot}: Added RTSP processor track to peer connection")
 
         except Exception as e:
-            logger.error(f"Failed to create RTSP track: {e}")
+            logger.error(f"Camera {slot}: Failed to create RTSP track: {e}")
+            del camera_slots[slot]
             return web.Response(
                 status=500,
                 content_type="application/json",
@@ -724,23 +928,56 @@ async def offer(request):
         # Webcam mode: wait for browser to send track
         @pc.on("track")
         def on_track(track):
-            logger.info(f"Received track: {track.kind}")
+            logger.info(f"Camera {slot}: Received track: {track.kind}")
 
             if track.kind == "video":
+                # Create processor track with camera-aware callback + pose detection from deep
                 processor_track = VideoProcessorTrack(
                     relay.subscribe(track), vlm_service,
-                    text_callback=broadcast_text_update,
+                    text_callback=camera_callback,
                     pose_callback=_on_pose_frame,
                     camera_role=camera_role,
                 )
                 active_processor_tracks.add(processor_track)
 
+                # Add processed track back to this peer connection (own feed)
                 pc.addTrack(processor_track)
-                logger.info(f"Added processed video track ({camera_role}) to peer connection")
+                logger.info(f"Camera {slot}: Added processed video track back to peer connection")
+
+                # Store this camera's processor track globally so other peers can subscribe
+                camera_tracks[slot] = processor_track
+
+                # If the other camera is already connected, trigger viewer PC setup
+                other_slot = 2 if slot == 1 else 1
+                other_pc = camera_slots.get(other_slot)
+                other_track = camera_tracks.get(other_slot)
+
+                if other_pc and other_track:
+                    logger.info(f"Both cameras connected — waiting for both WebSockets then triggering viewer PCs")
+                    _slot = slot
+                    _other_slot = other_slot
+                    _pc = pc
+                    _other_pc = other_pc
+                    _processor_track = processor_track
+                    _other_track = other_track
+                    async def wait_and_renegotiate():
+                        # Wait until BOTH camera WebSockets are registered (up to 60s)
+                        for _ in range(120):
+                            if _slot in camera_websockets and _other_slot in camera_websockets:
+                                break
+                            await asyncio.sleep(0.5)
+                        else:
+                            logger.warning(f"WebSockets for slots {_slot}/{_other_slot} never both registered, skipping")
+                            return
+                        logger.info(f"Both WebSockets ready — triggering viewer PCs for slots {_slot} and {_other_slot}")
+                        await _renegotiate(_pc, _slot, relay.subscribe(_other_track))
+                        await _renegotiate(_other_pc, _other_slot, relay.subscribe(_processor_track))
+                    asyncio.create_task(wait_and_renegotiate())
 
             @track.on("ended")
             async def on_ended():
-                logger.info(f"Track {track.kind} ended")
+                logger.info(f"Camera {slot}: Track {track.kind} ended")
+                camera_tracks.pop(slot, None)
 
     # Handle offer
     await pc.setRemoteDescription(offer_sdp)
@@ -753,7 +990,11 @@ async def offer(request):
 
     return web.Response(
         content_type="application/json",
-        text=json.dumps({"sdp": pc.localDescription.sdp, "type": pc.localDescription.type}),
+        text=json.dumps({
+            "sdp": pc.localDescription.sdp,
+            "type": pc.localDescription.type,
+            "camera_id": slot,
+        }),
     )
 
 
@@ -1065,6 +1306,9 @@ async def create_app(test_mode=False):
     app.router.add_get("/detect-services", detect_services)
     app.router.add_get("/ws", websocket_handler)
     app.router.add_post("/offer", offer)
+    app.router.add_get("/api/cameras", camera_status)
+    app.router.add_post("/renegotiate", renegotiate_answer)
+    app.router.add_post("/offer_viewer", offer_viewer)
 
     # Dashboard
     app.router.add_get("/dashboard", dashboard)

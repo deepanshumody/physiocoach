@@ -188,7 +188,7 @@
         </div>
         <div class="video-panel" id="sidePanel" style="display:none;">
             <video id="sideVideo" autoplay playsinline muted></video>
-            <div class="video-label">SIDE</div>
+            <div class="video-label">REMOTE</div>
         </div>
     </div>
 
@@ -211,14 +211,13 @@
         <div class="sidebar-section">
             <h3>Cameras</h3>
             <div class="cam-row">
-                <label>Front</label>
+                <label>My Camera</label>
                 <select class="camera-select" id="frontCameraSelect"><option value="">Loading...</option></select>
                 <button class="cam-btn" id="frontCamBtn"><i data-lucide="video"></i> Start</button>
             </div>
-            <div class="cam-row">
-                <label>Side</label>
-                <select class="camera-select" id="sideCameraSelect"><option value="">Loading...</option></select>
-                <button class="cam-btn" id="sideCamBtn"><i data-lucide="video"></i> Start</button>
+            <div class="cam-row" style="opacity:0.5;pointer-events:none;">
+                <label>Remote</label>
+                <span style="font-size:0.8rem;color:var(--text-muted);">Auto-connects when teammate joins</span>
             </div>
         </div>
 
@@ -286,6 +285,10 @@ let coachMessages = [];
 const cams = { front: { stream: null, pc: null, started: false }, side: { stream: null, pc: null, started: false } };
 let roleReps = { front: 0, side: 0 };
 
+// Multi-camera cross-relay
+let myCameraId = null;
+let viewerPc = null;
+
 const frontVideo = document.getElementById('frontVideo');
 const sideVideo = document.getElementById('sideVideo');
 const videoArea = document.getElementById('videoArea');
@@ -297,9 +300,9 @@ const exerciseDesc = document.getElementById('exerciseDesc');
 const exercisePicker = document.getElementById('exercisePicker');
 const generalDesc = document.getElementById('generalDesc');
 const frontCameraSelect = document.getElementById('frontCameraSelect');
-const sideCameraSelect = document.getElementById('sideCameraSelect');
+const sideCameraSelect = null;
 const frontCamBtn = document.getElementById('frontCamBtn');
-const sideCamBtn = document.getElementById('sideCamBtn');
+const sideCamBtn = null;
 const startBtn = document.getElementById('startBtn');
 const pauseBtn = document.getElementById('pauseBtn');
 const endBtn = document.getElementById('endBtn');
@@ -325,7 +328,7 @@ function setupEventListeners() {
     modeGuided.addEventListener('click', () => setMode(true));
     exerciseSelect.addEventListener('change', onExerciseChange);
     frontCamBtn.addEventListener('click', () => toggleCamera('front'));
-    sideCamBtn.addEventListener('click', () => toggleCamera('side'));
+    
     startBtn.addEventListener('click', startSession);
     pauseBtn.addEventListener('click', togglePause);
     endBtn.addEventListener('click', endSession);
@@ -391,11 +394,11 @@ async function enumerateCameras() {
         ts.getTracks().forEach(t => t.stop());
         const devs = await navigator.mediaDevices.enumerateDevices();
         const cams_list = devs.filter(d => d.kind === 'videoinput');
-        [frontCameraSelect, sideCameraSelect].forEach(sel => {
+        [frontCameraSelect].forEach(sel => {
             sel.innerHTML = '';
             cams_list.forEach((c, i) => { const o = document.createElement('option'); o.value = c.deviceId; o.textContent = c.label || `Camera ${i+1}`; sel.appendChild(o); });
         });
-    } catch { [frontCameraSelect, sideCameraSelect].forEach(s => s.innerHTML = '<option>No camera access</option>'); }
+    } catch { if (frontCameraSelect) frontCameraSelect.innerHTML = '<option>No camera access</option>'; }
 }
 
 function updateDualLayout() {
@@ -441,7 +444,35 @@ async function setupWebRTC(role) {
     await pc.setLocalDescription(offer);
     const res = await fetch('/offer', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sdp: offer.sdp, type: offer.type, role }) });
     const answer = await res.json();
+    if (answer.error) { alert('Camera slots full: ' + answer.error); return; }
+    myCameraId = answer.camera_id || 1;
     await pc.setRemoteDescription(new RTCSessionDescription(answer));
+    // Register this WebSocket so server can send us view_other_camera
+    if (websocket && websocket.readyState === WebSocket.OPEN) {
+        websocket.send(JSON.stringify({ type: 'register_camera', camera_id: myCameraId }));
+    }
+}
+
+async function setupViewerPC() {
+    if (viewerPc) { viewerPc.close(); viewerPc = null; }
+    viewerPc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
+    viewerPc.ontrack = (ev) => {
+        if (ev.streams && ev.streams[0]) {
+            sideVideo.srcObject = ev.streams[0];
+            sideVideo.play().catch(() => {});
+            sidePanel.style.display = 'flex';
+            document.getElementById('videoArea').classList.add('dual');
+            console.log('Remote camera feed received');
+        }
+    };
+    viewerPc.addTransceiver('video', { direction: 'recvonly' });
+    const offer = await viewerPc.createOffer();
+    await viewerPc.setLocalDescription(offer);
+    const res = await fetch('/offer_viewer', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sdp: offer.sdp, type: offer.type, camera_id: myCameraId }) });
+    const answer = await res.json();
+    if (answer.error) { console.error('Viewer PC:', answer.error); return; }
+    await viewerPc.setRemoteDescription(new RTCSessionDescription(answer));
+    console.log('Viewer PC ready — waiting for other camera track');
 }
 
 // ─── WebSocket ───
@@ -453,9 +484,18 @@ function connectWebSocket() {
     websocket.onmessage = (e) => { try { handleMessage(JSON.parse(e.data)); } catch {} };
 }
 
-function handleMessage(data) {
+async function handleMessage(data) {
     if (data.type === 'coaching_tip') {
         showCoachingTip(data.text, data.metrics);
+    } else if (data.type === 'view_other_camera') {
+        await setupViewerPC();
+    } else if (data.type === 'camera_connected') {
+        // Other camera connected — viewer PC will be set up via view_other_camera
+    } else if (data.type === 'camera_disconnected') {
+        if (viewerPc) { viewerPc.close(); viewerPc = null; }
+        sideVideo.srcObject = null;
+        sidePanel.style.display = 'none';
+        document.getElementById('videoArea').classList.remove('dual');
     } else if (data.type === 'pose_update') {
         const role = data.camera_role || 'front';
         if (typeof data.total_reps === 'number') { roleReps[role] = data.total_reps; updateMergedRepCount(); }

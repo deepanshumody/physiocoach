@@ -63,6 +63,8 @@ class VideoProcessorTrack(VideoStreamTrack):
         self.text_callback = text_callback
         self.pose_callback = pose_callback
         self.camera_role = camera_role
+        self.camera_id = 1 if camera_role == "front" else 2
+        self.coaching_prompt = None  # Per-track prompt set by server on session start
         self.pose_detector = PoseDetector()
         self.last_frame: Optional[np.ndarray] = None
         self.frame_count = 0
@@ -176,7 +178,8 @@ class VideoProcessorTrack(VideoStreamTrack):
                 # VLM analysis (async, non-blocking, slow but smart)
                 if need_vlm:
                     pil_img = Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
-                    asyncio.create_task(self.vlm_service.process_frame(pil_img))
+                    prompt = self.coaching_prompt if (self._coaching_active and self.coaching_prompt) else None
+                    asyncio.create_task(self.vlm_service.process_frame(pil_img, prompt=prompt))
                     if self.frame_count % 150 == 0:
                         logger.info(f"Frame {self.frame_count}: Sending to VLM (interval={vlm_interval})")
 

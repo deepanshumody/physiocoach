@@ -113,7 +113,19 @@ class VLMService:
             img_base64 = base64.b64encode(img_byte_arr).decode("utf-8")
 
             # Create message with image
-            messages = [
+            system_msg = None
+            if self._coaching_active:
+                system_msg = (
+                    "You are a PT coach giving real-time feedback. "
+                    "STRICT RULES: Respond in exactly 1-2 short sentences. "
+                    "No bullet points. No markdown. No disclaimers. No explanations. "
+                    "No 'Please note' or 'As an AI'. Just the coaching cue, nothing else."
+                )
+
+            messages = []
+            if system_msg:
+                messages.append({"role": "system", "content": system_msg})
+            messages.append(
                 {
                     "role": "user",
                     "content": [
@@ -124,7 +136,7 @@ class VLMService:
                         },
                     ],
                 }
-            ]
+            )
 
             # Call API
             response = await self.client.chat.completions.create(
@@ -214,7 +226,7 @@ class VLMService:
     async def process_frame(self, image: Image.Image, prompt: Optional[str] = None) -> None:
         """
         Process a frame asynchronously. Updates self.current_response when done.
-        In coaching mode, uses the coaching prompt.
+        In coaching mode, uses per-track prompt if provided, else coaching prompt.
         If already processing, this call is skipped.
         """
         if self._processing_lock.locked():
@@ -224,9 +236,12 @@ class VLMService:
         async with self._processing_lock:
             self.is_processing = True
             try:
-                effective_prompt = prompt
-                if self._coaching_active and self._coaching_prompt:
+                if prompt:
+                    effective_prompt = prompt
+                elif self._coaching_active and self._coaching_prompt:
                     effective_prompt = self._coaching_prompt
+                else:
+                    effective_prompt = None
 
                 response = await self.analyze_image(image, effective_prompt)
                 self.current_response = response
