@@ -35,7 +35,9 @@ from aiortc import (
 )
 from aiortc.contrib.media import MediaRelay
 
-from .vlm_service import VLMService, parse_json_response
+import cv2
+from PIL import Image
+from .vlm_service import VLMService
 from .video_processor import VideoProcessorTrack
 from .gpu_monitor import create_monitor
 from .rtsp_track import RTSPVideoTrack
@@ -58,6 +60,13 @@ gpu_monitor_task = None  # Background task for GPU monitoring
 rtsp_tracks = {}  # Track active RTSP streams {session_id: (rtsp_track, processor_track)}
 session_manager: SessionManager = None  # PT session tracking
 active_exercise_id: str = None  # Currently selected exercise
+active_processor_tracks: set = set()  # Track active VideoProcessorTrack instances for pose config
+
+DEFAULT_COACHING_PROMPT = (
+    "You are a PT coach. Look at this exercise image and give ONE short correction or encouragement. "
+    "Name the exercise if you can tell. Max 2 sentences. No lists, no markdown. Example: "
+    "\"Nice squat depth! Try to keep your chest up more.\""
+)
 
 # Multi-camera support: track how many cameras are connected (max 2)
 # camera_slots = {1: pc, 2: pc}  maps slot number → peer connection
@@ -364,8 +373,6 @@ async def websocket_handler(request):
                         try:
                             process_every = int(process_every)
                             if 1 <= process_every <= 3600:  # Up to 3600 frames (2 minutes @ 30fps)
-                                from .video_processor import VideoProcessorTrack
-
                                 old_value = VideoProcessorTrack.process_every_n_frames
                                 VideoProcessorTrack.process_every_n_frames = process_every
                                 logger.info(
@@ -386,28 +393,36 @@ async def websocket_handler(request):
                     elif data.get("type") == "select_exercise":
                         exercise_id = data.get("exercise_id", "")
                         global active_exercise_id
+                        active_exercise_id = exercise_id
                         ex = get_exercise(exercise_id)
                         if ex:
-                            active_exercise_id = exercise_id
-                            vlm_service.set_exercise_mode(ex.build_vlm_prompt(), callback=_on_exercise_frame)
                             await ws.send_json({"type": "exercise_selected", "exercise": ex.to_dict()})
                             logger.info(f"Exercise selected: {ex.name}")
                         else:
-                            await ws.send_json({"type": "error", "message": f"Unknown exercise: {exercise_id}"})
+                            await ws.send_json({"type": "exercise_selected", "exercise": {"id": "general", "name": "General Coach"}})
 
                     elif data.get("type") == "start_exercise_session":
-                        exercise_id = data.get("exercise_id") or active_exercise_id
-                        if not exercise_id:
-                            await ws.send_json({"type": "error", "message": "No exercise selected"})
-                        else:
-                            ex = get_exercise(exercise_id)
-                            if ex:
-                                active_exercise_id = exercise_id
-                                vlm_service.set_exercise_mode(ex.build_vlm_prompt(), callback=_on_exercise_frame)
-                                VideoProcessorTrack._coaching_active = True
-                                sid = await session_manager.start_session(exercise_id)
-                                await ws.send_json({"type": "session_started", "session_id": sid, "exercise": ex.to_dict()})
-                                logger.info(f"Exercise session {sid} started: {ex.name}")
+                        exercise_id = data.get("exercise_id") or active_exercise_id or "general"
+                        active_exercise_id = exercise_id
+                        ex = get_exercise(exercise_id)
+
+                        # Set conversational coaching prompt on VLM
+                        vlm_service.set_coaching_prompt(DEFAULT_COACHING_PROMPT)
+                        VideoProcessorTrack._coaching_active = True
+
+                        # Configure MediaPipe rep counting if a specific exercise is selected
+                        if ex and ex.primary_joint:
+                            for pt in active_processor_tracks:
+                                if pt.pose_detector.available:
+                                    pt.pose_detector.configure_exercise(
+                                        ex.primary_joint, ex.rep_down_threshold, ex.rep_up_threshold
+                                    )
+                            logger.info(f"Pose rep counting configured: joint={ex.primary_joint}")
+
+                        sid = await session_manager.start_session(exercise_id)
+                        ex_info = ex.to_dict() if ex else {"id": "general", "name": "General Coach"}
+                        await ws.send_json({"type": "session_started", "session_id": sid, "exercise": ex_info})
+                        logger.info(f"Session {sid} started: {ex_info.get('name', exercise_id)}")
 
                     elif data.get("type") == "pause_session":
                         session_manager.pause_session()
@@ -418,21 +433,54 @@ async def websocket_handler(request):
                         await ws.send_json({"type": "session_resumed"})
 
                     elif data.get("type") == "end_exercise_session":
+                        global _last_coaching_text
+                        _last_coaching_text = ""
                         VideoProcessorTrack._coaching_active = False
-                        vlm_service.clear_exercise_mode()
+                        vlm_service.clear_coaching()
+                        pose_reps = 0
+                        for pt in active_processor_tracks:
+                            if pt.pose_detector.available:
+                                pose_reps = max(pose_reps, pt.pose_detector.reps)
+                                pt.pose_detector.clear_exercise()
+                        if pose_reps > 0 and session_manager._rep_counter:
+                            session_manager._rep_counter.reps = pose_reps
                         summary = await session_manager.end_session()
                         if summary:
                             _broadcast_json({"type": "session_summary", **summary})
                             logger.info(f"Session ended: {summary.get('total_reps')} reps")
                         await ws.send_json({"type": "session_ended", "summary": summary})
 
+                    elif data.get("type") == "user_question":
+                        question = data.get("text", "").strip()
+                        if question and vlm_service:
+                            frame_img = None
+                            for pt in active_processor_tracks:
+                                if pt.last_frame is not None:
+                                    frame_img = Image.fromarray(cv2.cvtColor(pt.last_frame, cv2.COLOR_BGR2RGB))
+                                    break
+                            if frame_img:
+                                prompt = (
+                                    f"{DEFAULT_COACHING_PROMPT}\n\n"
+                                    f"The patient is asking you a question. Look at the camera image and answer helpfully.\n"
+                                    f"Patient's question: {question}"
+                                )
+                                answer = await vlm_service.analyze_image(frame_img, prompt)
+                            else:
+                                prompt = (
+                                    f"You are a friendly physical therapy coach. Answer this question helpfully.\n"
+                                    f"Patient's question: {question}"
+                                )
+                                answer = await vlm_service.analyze_image(
+                                    Image.new("RGB", (100, 100), (200, 200, 200)), prompt
+                                )
+                            await ws.send_json({"type": "chat_response", "question": question, "answer": answer})
+                            logger.info(f"Chat Q: {question[:60]} -> A: {answer[:80]}")
+
                     elif data.get("type") == "update_max_latency":
                         max_latency = data.get("max_latency", 0.0)
                         try:
                             max_latency = float(max_latency)
                             if 0 <= max_latency <= 10.0:
-                                from .video_processor import VideoProcessorTrack
-
                                 old_value = VideoProcessorTrack.max_frame_latency
                                 VideoProcessorTrack.max_frame_latency = max_latency
                                 status = "disabled" if max_latency == 0 else f"{max_latency:.1f}s"
@@ -465,25 +513,19 @@ async def websocket_handler(request):
     return ws
 
 
+_last_coaching_text = ""
+
 def broadcast_text_update(text: str, metrics: dict, camera_id: int = 1):
     """Broadcast text update and metrics to all connected WebSocket clients"""
+    global _last_coaching_text
     if not websockets:
         return
 
     message = json.dumps({"type": "vlm_response", "text": text, "metrics": metrics, "camera_id": camera_id})
 
-    # Send to all connected clients
-    dead_websockets = set()
-    for ws in websockets:
-        try:
-            # Use asyncio to send without blocking
-            asyncio.create_task(ws.send_str(message))
-        except Exception as e:
-            logger.error(f"Error sending to websocket: {e}")
-            dead_websockets.add(ws)
-
-    # Clean up dead connections
-    websockets.difference_update(dead_websockets)
+    if vlm_service and vlm_service.coaching_active and text and text != _last_coaching_text and not text.startswith("Error:") and text != "Initializing...":
+        _last_coaching_text = text
+        _broadcast_json({"type": "coaching_tip", "text": text, "metrics": metrics})
 
 
 def broadcast_gpu_stats(stats: dict):
@@ -520,16 +562,26 @@ def _broadcast_json(data: dict):
     websockets.difference_update(dead)
 
 
-async def _on_exercise_frame(parsed: dict):
-    """Callback invoked by VLMService when a coaching-mode frame is analysed."""
-    if not session_manager or not session_manager.active:
-        _broadcast_json({"type": "exercise_update", **parsed})
+def _on_pose_frame(pose_result: dict):
+    """Callback from MediaPipe pose detector -- runs synchronously on every few frames."""
+    if not pose_result.get("pose_detected"):
         return
 
-    update = await session_manager.record_frame(parsed)
-    _broadcast_json({"type": "exercise_update", **update})
-    if update.get("rep_completed"):
-        _broadcast_json({"type": "rep_counted", "total_reps": update["total_reps"]})
+    rep_completed = pose_result.get("rep_completed", False)
+    total_reps = pose_result.get("total_reps", 0)
+    angle = pose_result.get("angle")
+    role = pose_result.get("camera_role", "front")
+
+    _broadcast_json({
+        "type": "pose_update",
+        "camera_role": role,
+        "angle": angle,
+        "total_reps": total_reps,
+        "rep_completed": rep_completed,
+    })
+
+    if rep_completed:
+        _broadcast_json({"type": "rep_counted", "camera_role": role, "total_reps": total_reps})
 
 
 async def gpu_monitor_loop():
@@ -684,7 +736,8 @@ async def offer(request):
     """Handle WebRTC offer from client (supports both webcam and RTSP)"""
     params = await request.json()
     offer_sdp = RTCSessionDescription(sdp=params["sdp"], type=params["type"])
-    rtsp_url = params.get("rtsp_url")  # Optional RTSP URL for IP camera mode
+    rtsp_url = params.get("rtsp_url")
+    camera_role = params.get("role", "front")
 
     # Assign a camera slot (1 or 2)
     assigned_slot = None
@@ -771,10 +824,13 @@ async def offer(request):
             relayed_rtsp = relay.subscribe(rtsp_track)
 
             processor_track = VideoProcessorTrack(
-                relayed_rtsp, vlm_service, text_callback=camera_callback
+                relayed_rtsp, vlm_service,
+                text_callback=camera_callback,
+                pose_callback=_on_pose_frame,
+                camera_role=camera_role,
             )
+            active_processor_tracks.add(processor_track)
 
-            # Add processor directly to peer connection
             pc.addTrack(processor_track)
             logger.info(f"Camera {slot}: Added RTSP processor track to peer connection")
 
@@ -793,10 +849,14 @@ async def offer(request):
             logger.info(f"Camera {slot}: Received track: {track.kind}")
 
             if track.kind == "video":
-                # Create processor track with VLM service and camera-aware callback
+                # Create processor track with camera-aware callback + pose detection from deep
                 processor_track = VideoProcessorTrack(
-                    relay.subscribe(track), vlm_service, text_callback=camera_callback
+                    relay.subscribe(track), vlm_service,
+                    text_callback=camera_callback,
+                    pose_callback=_on_pose_frame,
+                    camera_role=camera_role,
                 )
+                active_processor_tracks.add(processor_track)
 
                 # Add processed track back to this peer connection (own feed)
                 pc.addTrack(processor_track)
@@ -805,7 +865,7 @@ async def offer(request):
                 # Store this camera's processor track globally so other peers can subscribe
                 camera_tracks[slot] = processor_track
 
-                # If the other camera is already connected, cross-relay via renegotiation
+                # If the other camera is already connected, trigger viewer PC setup
                 other_slot = 2 if slot == 1 else 1
                 other_pc = camera_slots.get(other_slot)
                 other_track = camera_tracks.get(other_slot)
@@ -813,15 +873,14 @@ async def offer(request):
                 if other_pc and other_track:
                     logger.info(f"Both cameras connected — waiting for Camera {other_slot} WebSocket then renegotiating")
                     async def wait_and_renegotiate():
-                        # Poll until the other camera's WebSocket is registered (up to 60s)
                         for _ in range(120):
                             if other_slot in camera_websockets:
                                 break
                             await asyncio.sleep(0.5)
                         else:
-                            logger.warning(f"Camera {other_slot} WebSocket never registered, skipping renegotiation")
+                            logger.warning(f"Camera {other_slot} WebSocket never registered, skipping")
                             return
-                        logger.info(f"Camera {other_slot} WebSocket ready — triggering renegotiation")
+                        logger.info(f"Camera {other_slot} WebSocket ready — triggering viewer PC setup")
                         await _renegotiate(pc, slot, relay.subscribe(other_track))
                         await _renegotiate(other_pc, other_slot, relay.subscribe(processor_track))
                     asyncio.create_task(wait_and_renegotiate())
@@ -892,7 +951,9 @@ async def rtsp_start(request):
 
         # Create processor track (same as WebRTC path)
         processor_track = VideoProcessorTrack(
-            rtsp_track, vlm_service, text_callback=broadcast_text_update
+            rtsp_track, vlm_service,
+            text_callback=broadcast_text_update,
+            pose_callback=_on_pose_frame,
         )
 
         # Start background task to consume frames

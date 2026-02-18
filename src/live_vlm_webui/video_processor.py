@@ -29,6 +29,7 @@ import time
 import av
 
 from .vlm_service import VLMService
+from .pose_detector import PoseDetector
 
 # Enable swscaler warnings to track hardware acceleration status
 # TODO: Implement hardware-accelerated color space conversion on Jetson using NVMM/VPI
@@ -51,12 +52,18 @@ class VideoProcessorTrack(VideoStreamTrack):
     max_frame_latency = 0.0
     # Whether we are in active coaching mode
     _coaching_active = False
+    # How often to run pose detection (every Nth frame, cheap ~10ms)
+    pose_every_n_frames = 3
 
-    def __init__(self, track: VideoStreamTrack, vlm_service: VLMService, text_callback=None):
+    def __init__(self, track: VideoStreamTrack, vlm_service: VLMService,
+                 text_callback=None, pose_callback=None, camera_role: str = "front"):
         super().__init__()
         self.track = track
         self.vlm_service = vlm_service
-        self.text_callback = text_callback  # Callback to send text updates
+        self.text_callback = text_callback
+        self.pose_callback = pose_callback
+        self.camera_role = camera_role
+        self.pose_detector = PoseDetector()
         self.last_frame: Optional[np.ndarray] = None
         self.frame_count = 0
         self.dropped_frames = 0
@@ -138,37 +145,40 @@ class VideoProcessorTrack(VideoStreamTrack):
             # Increment frame counter
             self.frame_count += 1
 
-            # Only convert to numpy when needed (for VLM processing or first frame)
-            # This avoids expensive CPU color conversion on every frame
             cls = self.__class__
-            interval = cls.coaching_frame_interval if cls._coaching_active else cls.process_every_n_frames
-            need_conversion = (self.frame_count % interval == 0) or (self.frame_count == 1)
+            coaching = cls._coaching_active
+            vlm_interval = cls.coaching_frame_interval if coaching else cls.process_every_n_frames
+
+            # Determine what work to do this frame
+            need_vlm = (self.frame_count % vlm_interval == 0)
+            need_pose = coaching and self.pose_detector.available and (self.frame_count % cls.pose_every_n_frames == 0)
+            need_conversion = need_vlm or need_pose or (self.frame_count == 1)
 
             if need_conversion:
                 t1 = time.time()
-                # Convert to numpy array (expensive: YUV→BGR color conversion on CPU)
                 img = frame.to_ndarray(format="bgr24")
                 t2 = time.time()
                 self.last_frame = img.copy()
-                t3 = time.time()
 
-                # Log timing every 100 frames to identify bottlenecks
-                if self.frame_count % 100 == 0:
-                    logger.info(
-                        f"Frame conversion times: to_ndarray={1000*(t2-t1):.1f}ms, copy={1000*(t3-t2):.1f}ms"
-                    )
+                if self.frame_count % 300 == 0:
+                    logger.info(f"Frame conversion: to_ndarray={1000*(t2-t1):.1f}ms")
 
-                # Log first frame
                 if self.frame_count == 1:
                     logger.info(f"First frame received: {img.shape}")
 
-                # Send frame to VLM for analysis (async, non-blocking)
-                if self.frame_count % interval == 0:
-                    # Convert to PIL Image for VLM
+                # Pose detection (runs ~5-15ms on CPU)
+                if need_pose:
+                    pose_result = self.pose_detector.process_frame(img)
+                    if self.pose_callback and pose_result.get("pose_detected"):
+                        pose_result["camera_role"] = self.camera_role
+                        self.pose_callback(pose_result)
+
+                # VLM analysis (async, non-blocking, slow but smart)
+                if need_vlm:
                     pil_img = Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
-                    # Fire and forget - don't wait for result
                     asyncio.create_task(self.vlm_service.process_frame(pil_img))
-                    logger.info(f"Frame {self.frame_count}: Sending to VLM (interval={interval})")
+                    if self.frame_count % 150 == 0:
+                        logger.info(f"Frame {self.frame_count}: Sending to VLM (interval={vlm_interval})")
 
             # Get current response (may be old if VLM is still processing)
             response, is_processing = self.vlm_service.get_current_response()
