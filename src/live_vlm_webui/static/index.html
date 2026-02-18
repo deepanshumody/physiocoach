@@ -2034,15 +2034,31 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
 
         <!-- Main Content -->
         <div class="main-content">
-            <!-- Video Feed -->
-            <div class="video-card">
-                <div class="video-controls">
-                    <button class="video-control-btn" id="mirrorBtn" title="Mirror video">
-                        <i data-lucide="flip-horizontal"></i> Mirror
-                    </button>
+            <!-- Video Feed(s) -->
+            <div id="videoGrid" style="display:grid; grid-template-columns:1fr; gap:12px;">
+
+                <!-- Camera 1 -->
+                <div class="video-card" id="cam1Card" style="position:relative;">
+                    <div class="video-controls">
+                        <span style="font-size:11px; font-weight:600; padding:2px 8px; border-radius:4px; background:var(--accent-color); color:#fff; margin-right:8px;">CAM 1</span>
+                        <button class="video-control-btn" id="mirrorBtn" title="Mirror video">
+                            <i data-lucide="flip-horizontal"></i> Mirror
+                        </button>
+                    </div>
+                    <video id="videoElement" autoplay playsinline muted></video>
+                    <div class="video-overlay" id="videoOverlay"></div>
                 </div>
-                <video id="videoElement" autoplay playsinline muted></video>
-                <div class="video-overlay" id="videoOverlay"></div>
+
+                <!-- Camera 2 (shown when a second client connects) -->
+                <div class="video-card" id="cam2Card" style="position:relative; display:none;">
+                    <div class="video-controls">
+                        <span style="font-size:11px; font-weight:600; padding:2px 8px; border-radius:4px; background:#7c3aed; color:#fff; margin-right:8px;">CAM 2</span>
+                        <span id="cam2Status" style="font-size:11px; color:var(--text-muted);">Waiting for second device…</span>
+                    </div>
+                    <video id="videoElement2" autoplay playsinline muted style="width:100%; border-radius:8px; background:#000; min-height:180px;"></video>
+                    <div class="video-overlay" id="videoOverlay2" style="font-size:13px;"></div>
+                </div>
+
             </div>
 
             <!-- Generation Result -->
@@ -2050,7 +2066,7 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
                 <div class="result-header">
                     <div class="result-header-left">
                         <div class="result-title">
-                            <i data-lucide="bot"></i> VLM Output Info
+                            <i data-lucide="bot"></i> VLM Output — <span id="activeSourceLabel" style="color:var(--accent-color);">Camera 1</span>
                         </div>
                         <div class="result-subtitle">
                             Model: <span id="modelName" style="font-weight: 600; color: var(--accent-color);">--</span>
@@ -2075,6 +2091,11 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
                         </div>
                     </div>
             </div>
+                <!-- Camera 2 result (shown when cam2 is active) -->
+                <div id="cam2ResultSection" style="display:none; margin-bottom:8px; padding:8px 12px; background:rgba(124,58,237,0.08); border-left:3px solid #7c3aed; border-radius:4px;">
+                    <div style="font-size:11px; font-weight:600; color:#7c3aed; margin-bottom:4px;">CAM 2 — Latest Response</div>
+                    <div id="cam2ResultText" style="font-size:13px; color:var(--text-secondary);">Waiting…</div>
+                </div>
 
                 <div class="result-prompt" id="currentPrompt"></div>
                 <div class="result-text" id="resultText">
@@ -2192,6 +2213,40 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
         let rtspSessionId = 'default';  // For RTSP mode
         // Enable markdown by default (user can disable if they prefer raw text)
         let markdownEnabled = localStorage.getItem('markdownEnabled') !== 'false';
+
+        // Multi-camera state
+        let myCameraId = null;  // Which slot this browser tab was assigned (1 or 2)
+        let cam2Active = false; // Is Camera 2 connected?
+
+        // Update UI to reflect connected cameras
+        function updateCameraUI(occupiedSlots) {
+            const cam2Card = document.getElementById('cam2Card');
+            const cam2ResultSection = document.getElementById('cam2ResultSection');
+            const videoGrid = document.getElementById('videoGrid');
+            const activeSourceLabel = document.getElementById('activeSourceLabel');
+
+            if (occupiedSlots.includes(2)) {
+                cam2Card.style.display = '';
+                cam2ResultSection.style.display = '';
+                videoGrid.style.gridTemplateColumns = '1fr 1fr';
+                document.getElementById('cam2Status').textContent = 'Connected';
+            } else {
+                cam2Card.style.display = 'none';
+                cam2ResultSection.style.display = 'none';
+                videoGrid.style.gridTemplateColumns = '1fr';
+                document.getElementById('cam2Status').textContent = 'Waiting for second device…';
+                document.getElementById('cam2ResultText').textContent = 'Waiting…';
+            }
+
+            // Update active source label
+            if (myCameraId === 2) {
+                activeSourceLabel.textContent = 'Camera 2';
+                activeSourceLabel.style.color = '#7c3aed';
+            } else {
+                activeSourceLabel.textContent = occupiedSlots.includes(2) ? 'Camera 1 & 2' : 'Camera 1';
+                activeSourceLabel.style.color = '';
+            }
+        }
 
         // Enumerate and list available cameras
         async function enumerateCameras() {
@@ -3544,6 +3599,14 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
                 const data = JSON.parse(event.data);
 
                 if (data.type === 'vlm_response') {
+                    const camId = data.camera_id || 1;
+
+                    if (camId === 2) {
+                        // Route Camera 2 response to its own section
+                        document.getElementById('cam2ResultText').textContent = data.text || '';
+                        document.getElementById('videoOverlay2').textContent = data.text || '';
+                    } else {
+                        // Camera 1 (or legacy untagged response)
                     // Trigger animations for new messages based on settings
                     if (data.text !== lastText) {
                         resultText.classList.remove('fade');
@@ -3592,6 +3655,15 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
                         avgLatencyValue.textContent = Math.round(data.metrics.avg_latency_ms);
                         countValue.textContent = data.metrics.total_inferences;
                     }
+                    }
+                } else if (data.type === 'camera_connected') {
+                    const connectedSlots = data.occupied || [];
+                    cam2Active = connectedSlots.includes(2);
+                    updateCameraUI(connectedSlots);
+                } else if (data.type === 'camera_disconnected') {
+                    const connectedSlots = data.occupied || [];
+                    cam2Active = connectedSlots.includes(2);
+                    updateCameraUI(connectedSlots);
                 } else if (data.type === 'gpu_stats') {
                     window.lastSystemStats = data.stats;  // Store for theme changes
 
@@ -3740,6 +3812,15 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
                 });
 
                 const answer = await response.json();
+
+                if (answer.error) {
+                    throw new Error(answer.error);
+                }
+
+                myCameraId = answer.camera_id || 1;
+                console.log(`Assigned camera slot: ${myCameraId}`);
+                updateCameraUI([myCameraId]);
+
                 await peerConnection.setRemoteDescription(new RTCSessionDescription(answer));
 
                 startBtn.disabled = true;
@@ -3825,8 +3906,8 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
                 }
 
                 const answer = await response.json();
+                myCameraId = answer.camera_id || 1;
                 await peerConnection.setRemoteDescription(new RTCSessionDescription(answer));
-
                 startBtn.disabled = true;
                 stopBtn.disabled = false;
                 isAnalysisRunning = true;
@@ -3904,6 +3985,13 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
             await detectServices();
             fetchModels();
             connectWebSocket();
+
+            // Sync camera slot status
+            try {
+                const camRes = await fetch('/api/cameras');
+                const camData = await camRes.json();
+                updateCameraUI(camData.occupied || []);
+            } catch (e) { /* ignore */ }
 
             // Initialize prompt display
             const initialPrompt = promptText.value.trim();

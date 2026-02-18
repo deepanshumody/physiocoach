@@ -55,6 +55,11 @@ gpu_monitor = None  # GPU monitoring instance
 gpu_monitor_task = None  # Background task for GPU monitoring
 rtsp_tracks = {}  # Track active RTSP streams {session_id: (rtsp_track, processor_track)}
 
+# Multi-camera support: track how many cameras are connected (max 2)
+# camera_slots = {1: pc, 2: pc}  maps slot number → peer connection
+camera_slots: dict = {}
+MAX_CAMERAS = 2
+
 
 def is_port_available(port, host="0.0.0.0"):
     """Check if a port is available for binding"""
@@ -394,12 +399,12 @@ async def websocket_handler(request):
     return ws
 
 
-def broadcast_text_update(text: str, metrics: dict):
+def broadcast_text_update(text: str, metrics: dict, camera_id: int = 1):
     """Broadcast text update and metrics to all connected WebSocket clients"""
     if not websockets:
         return
 
-    message = json.dumps({"type": "vlm_response", "text": text, "metrics": metrics})
+    message = json.dumps({"type": "vlm_response", "text": text, "metrics": metrics, "camera_id": camera_id})
 
     # Send to all connected clients
     dead_websockets = set()
@@ -435,6 +440,20 @@ def broadcast_gpu_stats(stats: dict):
     websockets.difference_update(dead_websockets)
 
 
+def _broadcast_json(data: dict):
+    """Broadcast a JSON dict to all connected WebSocket clients."""
+    if not websockets:
+        return
+    message = json.dumps(data)
+    dead = set()
+    for ws in websockets:
+        try:
+            asyncio.create_task(ws.send_str(message))
+        except Exception:
+            dead.add(ws)
+    websockets.difference_update(dead)
+
+
 async def gpu_monitor_loop():
     """Background task to periodically collect and broadcast GPU stats"""
     global gpu_monitor
@@ -467,11 +486,38 @@ async def gpu_monitor_loop():
         logger.error(f"Error in GPU monitoring loop: {e}")
 
 
+async def camera_status(request):
+    """Return which camera slots are occupied"""
+    occupied = list(camera_slots.keys())
+    available = [s for s in range(1, MAX_CAMERAS + 1) if s not in camera_slots]
+    return web.Response(
+        content_type="application/json",
+        text=json.dumps({"occupied": occupied, "available": available, "max": MAX_CAMERAS}),
+    )
+
+
 async def offer(request):
     """Handle WebRTC offer from client (supports both webcam and RTSP)"""
     params = await request.json()
     offer_sdp = RTCSessionDescription(sdp=params["sdp"], type=params["type"])
     rtsp_url = params.get("rtsp_url")  # Optional RTSP URL for IP camera mode
+
+    # Assign a camera slot (1 or 2)
+    assigned_slot = None
+    for slot in range(1, MAX_CAMERAS + 1):
+        if slot not in camera_slots:
+            assigned_slot = slot
+            break
+
+    if assigned_slot is None:
+        logger.warning("All camera slots are full, rejecting connection")
+        return web.Response(
+            status=409,
+            content_type="application/json",
+            text=json.dumps({"error": "All camera slots are full (max 2 cameras)"}),
+        )
+
+    logger.info(f"Assigning camera slot {assigned_slot} to new connection")
 
     # Create RTCPeerConnection with STUN servers for Docker/NAT compatibility
     config = RTCConfiguration(
@@ -482,34 +528,54 @@ async def offer(request):
     )
     pc = RTCPeerConnection(configuration=config)
     pcs.add(pc)
+    camera_slots[assigned_slot] = pc
+
+    # Notify all clients about the new camera connection
+    _broadcast_json({"type": "camera_connected", "camera_id": assigned_slot, "occupied": list(camera_slots.keys())})
 
     # Store RTSP track for cleanup
     rtsp_cleanup_track = None
 
+    # Capture slot for closures
+    slot = assigned_slot
+
     @pc.on("connectionstatechange")
     async def on_connectionstatechange():
-        logger.info(f"Connection state: {pc.connectionState}")
+        logger.info(f"Camera {slot} connection state: {pc.connectionState}")
         if pc.connectionState in ["failed", "closed"]:
             # Clean up RTSP track if exists
             if rtsp_cleanup_track:
                 rtsp_cleanup_track.stop()
-                logger.info("RTSP track stopped on connection close")
+                logger.info(f"Camera {slot} RTSP track stopped on connection close")
             await pc.close()
             pcs.discard(pc)
+            # Free up the camera slot
+            if camera_slots.get(slot) is pc:
+                del camera_slots[slot]
+                logger.info(f"Camera slot {slot} freed")
+                _broadcast_json({"type": "camera_disconnected", "camera_id": slot, "occupied": list(camera_slots.keys())})
 
     @pc.on("iceconnectionstatechange")
     async def on_iceconnectionstatechange():
-        logger.info(f"ICE connection state: {pc.iceConnectionState}")
+        logger.info(f"Camera {slot} ICE connection state: {pc.iceConnectionState}")
         if pc.iceConnectionState == "failed":
-            logger.error("ICE connection failed - check firewall/NAT settings")
+            logger.error(f"Camera {slot} ICE connection failed - check firewall/NAT settings")
 
     @pc.on("icegatheringstatechange")
     async def on_icegatheringstatechange():
-        logger.info(f"ICE gathering state: {pc.iceGatheringState}")
+        logger.info(f"Camera {slot} ICE gathering state: {pc.iceGatheringState}")
+
+    # Build a camera-aware text callback
+    def make_camera_callback(cam_id):
+        def _cb(text, metrics):
+            broadcast_text_update(text, metrics, camera_id=cam_id)
+        return _cb
+
+    camera_callback = make_camera_callback(slot)
 
     # If RTSP URL provided, create RTSP track instead of waiting for browser track
     if rtsp_url:
-        logger.info(f"Creating RTSP track for: {rtsp_url}")
+        logger.info(f"Creating RTSP track for camera {slot}: {rtsp_url}")
         try:
             rtsp_track = RTSPVideoTrack(rtsp_url)
             rtsp_cleanup_track = rtsp_track  # Store for cleanup
@@ -521,15 +587,16 @@ async def offer(request):
             relayed_rtsp = relay.subscribe(rtsp_track)
 
             processor_track = VideoProcessorTrack(
-                relayed_rtsp, vlm_service, text_callback=broadcast_text_update
+                relayed_rtsp, vlm_service, text_callback=camera_callback
             )
 
             # Add processor directly to peer connection
             pc.addTrack(processor_track)
-            logger.info("Added RTSP processor track to peer connection")
+            logger.info(f"Camera {slot}: Added RTSP processor track to peer connection")
 
         except Exception as e:
-            logger.error(f"Failed to create RTSP track: {e}")
+            logger.error(f"Camera {slot}: Failed to create RTSP track: {e}")
+            del camera_slots[slot]
             return web.Response(
                 status=500,
                 content_type="application/json",
@@ -539,21 +606,21 @@ async def offer(request):
         # Webcam mode: wait for browser to send track
         @pc.on("track")
         def on_track(track):
-            logger.info(f"Received track: {track.kind}")
+            logger.info(f"Camera {slot}: Received track: {track.kind}")
 
             if track.kind == "video":
-                # Create processor track with VLM service and text callback
+                # Create processor track with VLM service and camera-aware callback
                 processor_track = VideoProcessorTrack(
-                    relay.subscribe(track), vlm_service, text_callback=broadcast_text_update
+                    relay.subscribe(track), vlm_service, text_callback=camera_callback
                 )
 
                 # Add processed track back to connection
                 pc.addTrack(processor_track)
-                logger.info("Added processed video track back to peer connection")
+                logger.info(f"Camera {slot}: Added processed video track back to peer connection")
 
             @track.on("ended")
             async def on_ended():
-                logger.info(f"Track {track.kind} ended")
+                logger.info(f"Camera {slot}: Track {track.kind} ended")
 
     # Handle offer
     await pc.setRemoteDescription(offer_sdp)
@@ -566,7 +633,11 @@ async def offer(request):
 
     return web.Response(
         content_type="application/json",
-        text=json.dumps({"sdp": pc.localDescription.sdp, "type": pc.localDescription.type}),
+        text=json.dumps({
+            "sdp": pc.localDescription.sdp,
+            "type": pc.localDescription.type,
+            "camera_id": slot,
+        }),
     )
 
 
@@ -824,6 +895,7 @@ async def create_app(test_mode=False):
     app.router.add_get("/detect-services", detect_services)
     app.router.add_get("/ws", websocket_handler)
     app.router.add_post("/offer", offer)
+    app.router.add_get("/api/cameras", camera_status)
 
     # RTSP endpoints
     app.router.add_post("/api/rtsp/start", rtsp_start)
