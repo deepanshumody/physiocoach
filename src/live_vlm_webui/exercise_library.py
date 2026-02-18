@@ -1,10 +1,21 @@
 """
 Exercise Library for PT Rehab Coach
-Defines exercises with form criteria, phase definitions, and VLM prompt templates.
+Defines exercises with form criteria, phase definitions, VLM prompt templates,
+and ROM (Range of Motion) joint mappings for automatic angle measurement.
 """
 
 from dataclasses import dataclass, field, asdict
 from typing import Optional
+
+
+@dataclass
+class ROMTarget:
+    """ROM measurement target for an exercise."""
+    joint: str
+    movement: str
+    side: str  # "left", "right", "both"
+    target_angle: float  # normal/goal ROM in degrees
+    min_angle: float = 0.0  # angle at start position
 
 
 @dataclass
@@ -18,13 +29,41 @@ class Exercise:
     phases: list[str]
     rep_start_phase: str
     rep_end_phase: str
+    rom_targets: list[ROMTarget] = field(default_factory=list)
 
     def to_dict(self) -> dict:
-        return asdict(self)
+        d = asdict(self)
+        return d
+
+    def _rom_prompt_section(self) -> str:
+        if not self.rom_targets:
+            return ""
+        targets_desc = []
+        for rt in self.rom_targets:
+            targets_desc.append(
+                f"{rt.joint} {rt.movement} ({rt.side} side): target {rt.target_angle}°"
+            )
+        targets_str = "; ".join(targets_desc)
+        rom_fields = ', '.join(
+            f'"{rt.joint}_{rt.movement}_angle": <degrees>'
+            for rt in self.rom_targets
+        )
+        return (
+            f"\nROM MEASUREMENT — also estimate these joint angles in degrees:\n"
+            f"  {targets_str}\n"
+            f"Include in your JSON: {rom_fields}\n"
+        )
 
     def build_vlm_prompt(self) -> str:
         mistakes_str = "\n".join(f"  - {m}" for m in self.common_mistakes)
         phases_str = ", ".join(self.phases)
+        rom_section = self._rom_prompt_section()
+        rom_fields = ""
+        if self.rom_targets:
+            rom_fields = ", " + ", ".join(
+                f'"{rt.joint}_{rt.movement}_angle": <number or null>'
+                for rt in self.rom_targets
+            )
         return (
             f"You are an expert physical therapy coach. Analyze this image of a patient performing: {self.name}.\n"
             f"\n"
@@ -33,11 +72,13 @@ class Exercise:
             f"Correct form: {self.correct_form}\n"
             f"Movement phases (in order): {phases_str}\n"
             f"Common mistakes to watch for:\n{mistakes_str}\n"
+            f"{rom_section}"
             f"\n"
             f"Respond ONLY with a valid JSON object (no markdown, no extra text):\n"
             f'{{"exercise_detected": true/false, "phase": "<one of: {phases_str}>", '
             f'"form_score": <1-10>, "corrections": ["<specific correction>"], '
-            f'"rep_boundary": true/false, "feedback": "<brief encouraging or corrective message>"}}\n'
+            f'"rep_boundary": true/false, "feedback": "<brief encouraging or corrective message>"'
+            f'{rom_fields}}}\n'
             f"\n"
             f'Set "rep_boundary" to true ONLY when the person transitions from "{self.rep_end_phase}" back to "{self.rep_start_phase}" (one full rep just completed).\n'
             f"If you cannot see the person or they are not exercising, set exercise_detected to false."
@@ -61,6 +102,10 @@ EXERCISES: list[Exercise] = [
         phases=["standing", "descending", "bottom", "ascending"],
         rep_start_phase="standing",
         rep_end_phase="ascending",
+        rom_targets=[
+            ROMTarget(joint="knee", movement="flexion", side="both", target_angle=135),
+            ROMTarget(joint="hip", movement="flexion", side="both", target_angle=120),
+        ],
     ),
     Exercise(
         id="lunge",
@@ -78,6 +123,10 @@ EXERCISES: list[Exercise] = [
         phases=["standing", "stepping", "lowered", "returning"],
         rep_start_phase="standing",
         rep_end_phase="returning",
+        rom_targets=[
+            ROMTarget(joint="knee", movement="flexion", side="both", target_angle=90),
+            ROMTarget(joint="hip", movement="flexion", side="both", target_angle=90),
+        ],
     ),
     Exercise(
         id="wall_pushup",
@@ -95,6 +144,9 @@ EXERCISES: list[Exercise] = [
         phases=["extended", "lowering", "chest_near_wall", "pushing_back"],
         rep_start_phase="extended",
         rep_end_phase="pushing_back",
+        rom_targets=[
+            ROMTarget(joint="elbow", movement="flexion", side="both", target_angle=90),
+        ],
     ),
     Exercise(
         id="shoulder_raise",
@@ -112,6 +164,9 @@ EXERCISES: list[Exercise] = [
         phases=["arms_down", "raising", "arms_up", "lowering"],
         rep_start_phase="arms_down",
         rep_end_phase="lowering",
+        rom_targets=[
+            ROMTarget(joint="shoulder", movement="abduction", side="both", target_angle=90),
+        ],
     ),
     Exercise(
         id="calf_raise",
@@ -129,6 +184,9 @@ EXERCISES: list[Exercise] = [
         phases=["flat", "rising", "top", "lowering"],
         rep_start_phase="flat",
         rep_end_phase="lowering",
+        rom_targets=[
+            ROMTarget(joint="ankle", movement="plantarflexion", side="both", target_angle=50),
+        ],
     ),
     Exercise(
         id="seated_knee_ext",
@@ -146,6 +204,9 @@ EXERCISES: list[Exercise] = [
         phases=["knee_bent", "extending", "fully_extended", "lowering"],
         rep_start_phase="knee_bent",
         rep_end_phase="lowering",
+        rom_targets=[
+            ROMTarget(joint="knee", movement="extension", side="right", target_angle=0, min_angle=90),
+        ],
     ),
     Exercise(
         id="leg_raise",
@@ -163,6 +224,9 @@ EXERCISES: list[Exercise] = [
         phases=["legs_together", "raising", "top", "lowering"],
         rep_start_phase="legs_together",
         rep_end_phase="lowering",
+        rom_targets=[
+            ROMTarget(joint="hip", movement="abduction", side="right", target_angle=45),
+        ],
     ),
     Exercise(
         id="hip_abduction",
@@ -180,6 +244,9 @@ EXERCISES: list[Exercise] = [
         phases=["legs_together", "lifting", "leg_out", "returning"],
         rep_start_phase="legs_together",
         rep_end_phase="returning",
+        rom_targets=[
+            ROMTarget(joint="hip", movement="abduction", side="right", target_angle=45),
+        ],
     ),
     Exercise(
         id="bicep_curl",
@@ -197,6 +264,9 @@ EXERCISES: list[Exercise] = [
         phases=["arms_extended", "curling", "top", "lowering"],
         rep_start_phase="arms_extended",
         rep_end_phase="lowering",
+        rom_targets=[
+            ROMTarget(joint="elbow", movement="flexion", side="both", target_angle=150),
+        ],
     ),
     Exercise(
         id="neck_rotation",
@@ -214,6 +284,9 @@ EXERCISES: list[Exercise] = [
         phases=["center", "turning_right", "right", "returning_center", "turning_left", "left", "returning_center_2"],
         rep_start_phase="center",
         rep_end_phase="returning_center_2",
+        rom_targets=[
+            ROMTarget(joint="neck", movement="rotation", side="both", target_angle=80),
+        ],
     ),
 ]
 

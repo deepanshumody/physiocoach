@@ -353,6 +353,73 @@
             .main { grid-template-columns: 1fr; grid-template-rows: 50vh auto auto; }
             .sidebar { border-left: none; border-top: 1px solid #e2e8f0; }
         }
+
+        /* ROM Overlay on video */
+        .rom-angle-card {
+            background: rgba(0,0,0,0.7);
+            backdrop-filter: blur(8px);
+            color: white;
+            padding: 8px 14px;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 0.85rem;
+            border-left: 3px solid #22c55e;
+            min-width: 180px;
+        }
+        .rom-angle-card .rom-angle-val {
+            font-size: 1.4rem;
+            font-weight: 700;
+            line-height: 1;
+        }
+        .rom-angle-card .rom-angle-meta {
+            display: flex;
+            flex-direction: column;
+            gap: 1px;
+        }
+        .rom-angle-card .rom-angle-joint {
+            font-weight: 600;
+            text-transform: capitalize;
+            font-size: 0.75rem;
+        }
+        .rom-angle-card .rom-angle-target {
+            font-size: 0.65rem;
+            opacity: 0.7;
+        }
+        .rom-angle-card .rom-angle-status {
+            font-size: 0.6rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            padding: 1px 6px;
+            border-radius: 4px;
+        }
+
+        /* ROM sidebar items */
+        .rom-sidebar-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 10px;
+            background: var(--surface-alt);
+            border-radius: 8px;
+            border-left: 3px solid var(--primary);
+        }
+        .rom-sidebar-item .rom-sb-label {
+            font-size: 0.8rem;
+            font-weight: 500;
+            text-transform: capitalize;
+            color: var(--text);
+        }
+        .rom-sidebar-item .rom-sb-angle {
+            font-size: 1.1rem;
+            font-weight: 700;
+        }
+        .rom-sidebar-item .rom-sb-pct {
+            font-size: 0.7rem;
+            color: var(--text-muted);
+        }
     </style>
 </head>
 <body>
@@ -408,6 +475,11 @@
                 <span class="label">Form</span>
             </div>
         </div>
+
+        <!-- ROM Angle Display (bottom-right of video) -->
+        <div id="romOverlay" style="display:none; position:absolute; bottom:16px; right:16px; pointer-events:none;">
+            <div id="romAngleCards" style="display:flex; flex-direction:column; gap:6px; align-items:flex-end;"></div>
+        </div>
     </div>
 
     <!-- Sidebar -->
@@ -439,6 +511,13 @@
             <div class="form-bar-track">
                 <div class="form-bar-fill" id="formBarFill"></div>
             </div>
+        </div>
+
+        <div class="sidebar-section" id="romSidebarSection" style="display:none;">
+            <h3 style="display:flex;align-items:center;gap:6px;">
+                <i data-lucide="ruler" style="width:14px;height:14px;"></i> Joint ROM
+            </h3>
+            <div id="romSidebarContent" style="display:flex;flex-direction:column;gap:8px;"></div>
         </div>
 
         <div class="sidebar-section" style="flex:1;">
@@ -828,7 +907,58 @@ function updateExerciseUI(data) {
             lastSpokenTime = now;
         }
     }
+
+    // ROM angles (auto-detected from exercise)
+    updateROMDisplay(data.rom || []);
 }
+
+function updateROMDisplay(romAngles) {
+    const overlay = document.getElementById('romOverlay');
+    const cards = document.getElementById('romAngleCards');
+    const sidebarSection = document.getElementById('romSidebarSection');
+    const sidebarContent = document.getElementById('romSidebarContent');
+
+    if (!romAngles || romAngles.length === 0) {
+        overlay.style.display = 'none';
+        sidebarSection.style.display = 'none';
+        return;
+    }
+
+    overlay.style.display = 'block';
+    sidebarSection.style.display = 'block';
+
+    // Video overlay cards
+    cards.innerHTML = '';
+    romAngles.forEach(r => {
+        const card = document.createElement('div');
+        card.className = 'rom-angle-card';
+        card.style.borderLeftColor = r.color;
+        card.innerHTML = `
+            <span class="rom-angle-val" style="color:${r.color}">${Math.round(r.angle)}\u00B0</span>
+            <div class="rom-angle-meta">
+                <span class="rom-angle-joint">${r.joint} ${r.movement.replace(/_/g, ' ')}</span>
+                <span class="rom-angle-target">Target: ${r.target}\u00B0 \u2022 ${r.percent}%</span>
+                <span class="rom-angle-status" style="background:${r.color}22;color:${r.color}">${r.status}</span>
+            </div>
+        `;
+        cards.appendChild(card);
+    });
+
+    // Sidebar items
+    sidebarContent.innerHTML = '';
+    romAngles.forEach(r => {
+        const item = document.createElement('div');
+        item.className = 'rom-sidebar-item';
+        item.style.borderLeftColor = r.color;
+        item.innerHTML = `
+            <div>
+                <div class="rom-sb-label">${r.joint} ${r.movement.replace(/_/g, ' ')}</div>
+                <div class="rom-sb-pct">${r.percent}% of target (${r.target}\u00B0)</div>
+            </div>
+            <span class="rom-sb-angle" style="color:${r.color}">${Math.round(r.angle)}\u00B0</span>
+        `;
+        sidebarContent.appendChild(item);
+    });
 
 function updateRepCount(count) {
     const el = repCountEl;
@@ -898,6 +1028,8 @@ function onSessionEnded(data) {
     exerciseSelect.disabled = false;
     phaseBadge.style.display = 'none';
     formRing.style.display = 'none';
+    document.getElementById('romOverlay').style.display = 'none';
+    document.getElementById('romSidebarSection').style.display = 'none';
 
     if (data.summary) {
         const s = data.summary;

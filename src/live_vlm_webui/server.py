@@ -496,14 +496,55 @@ def _broadcast_json(data: dict):
     websockets.difference_update(dead)
 
 
+def _extract_rom_angles(parsed: dict) -> list[dict]:
+    """Extract ROM angle fields from VLM JSON response based on the active exercise."""
+    if not active_exercise_id:
+        return []
+    ex = get_exercise(active_exercise_id)
+    if not ex or not ex.rom_targets:
+        return []
+
+    angles = []
+    for rt in ex.rom_targets:
+        key = f"{rt.joint}_{rt.movement}_angle"
+        val = parsed.get(key)
+        if val is not None:
+            try:
+                angle = float(val)
+            except (ValueError, TypeError):
+                continue
+            pct = (angle / rt.target_angle * 100) if rt.target_angle > 0 else 0
+            if pct >= 90:
+                status, color = "Excellent", "#22c55e"
+            elif pct >= 70:
+                status, color = "Good", "#8BC34A"
+            elif pct >= 50:
+                status, color = "Limited", "#f59e0b"
+            else:
+                status, color = "Restricted", "#ef4444"
+            angles.append({
+                "joint": rt.joint,
+                "movement": rt.movement,
+                "side": rt.side,
+                "angle": round(angle, 1),
+                "target": rt.target_angle,
+                "percent": round(pct, 1),
+                "status": status,
+                "color": color,
+            })
+    return angles
+
+
 async def _on_exercise_frame(parsed: dict):
     """Callback invoked by VLMService when a coaching-mode frame is analysed."""
+    rom_angles = _extract_rom_angles(parsed)
+
     if not session_manager or not session_manager.active:
-        _broadcast_json({"type": "exercise_update", **parsed})
+        _broadcast_json({"type": "exercise_update", **parsed, "rom": rom_angles})
         return
 
     update = await session_manager.record_frame(parsed)
-    _broadcast_json({"type": "exercise_update", **update})
+    _broadcast_json({"type": "exercise_update", **update, "rom": rom_angles})
     if update.get("rep_completed"):
         _broadcast_json({"type": "rep_counted", "total_reps": update["total_reps"]})
 
