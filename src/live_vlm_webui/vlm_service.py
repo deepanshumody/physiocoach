@@ -22,6 +22,8 @@ Handles async image analysis using any OpenAI-compatible VLM API
 import asyncio
 import base64
 import io
+import json
+import re
 import time
 from openai import AsyncOpenAI
 from PIL import Image
@@ -29,6 +31,21 @@ from typing import Optional
 import logging
 
 logger = logging.getLogger(__name__)
+
+
+def parse_json_response(text: str) -> Optional[dict]:
+    """Extract a JSON object from VLM output, handling markdown fences and extra text."""
+    fence = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
+    if fence:
+        text = fence.group(1)
+    else:
+        match = re.search(r"\{.*\}", text, re.DOTALL)
+        if match:
+            text = match.group(0)
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        return None
 
 
 class VLMService:
@@ -57,10 +74,15 @@ class VLMService:
         self.api_key = api_key if api_key else "EMPTY"
         self.prompt = prompt
         self.max_tokens = max_tokens
+        self.temperature = 0.7
         self.client = AsyncOpenAI(base_url=api_base, api_key=api_key)
         self.current_response = "Initializing..."
         self.is_processing = False
         self._processing_lock = asyncio.Lock()
+
+        # Coaching state
+        self._coaching_prompt: Optional[str] = None
+        self._coaching_active = False
 
         # Metrics tracking
         self.last_inference_time = 0.0  # seconds
@@ -106,7 +128,7 @@ class VLMService:
 
             # Call API
             response = await self.client.chat.completions.create(
-                model=self.model, messages=messages, max_tokens=self.max_tokens, temperature=0.7
+                model=self.model, messages=messages, max_tokens=self.max_tokens, temperature=self.temperature
             )
 
             # Calculate latency
@@ -125,28 +147,6 @@ class VLMService:
         except Exception as e:
             logger.error(f"Error analyzing image: {e}")
             return f"Error: {str(e)}"
-
-    async def process_frame(self, image: Image.Image, prompt: Optional[str] = None) -> None:
-        """
-        Process a frame asynchronously. Updates self.current_response when done.
-        If already processing, this call is skipped.
-
-        Args:
-            image: PIL Image to process
-            prompt: Optional custom prompt (uses default if None)
-        """
-        # Non-blocking check if we're already processing
-        if self._processing_lock.locked():
-            logger.debug("VLM busy, skipping frame")
-            return
-
-        async with self._processing_lock:
-            self.is_processing = True
-            try:
-                response = await self.analyze_image(image, prompt)
-                self.current_response = response
-            finally:
-                self.is_processing = False
 
     def get_current_response(self) -> tuple[str, bool]:
         """
@@ -189,6 +189,49 @@ class VLMService:
             logger.info(f"Updated prompt to: {new_prompt}, max_tokens: {max_tokens}")
         else:
             logger.info(f"Updated prompt to: {new_prompt}")
+
+    def set_coaching_prompt(self, prompt: str, max_tokens: int = 80):
+        """Enter coaching mode with a natural-language prompt."""
+        self._coaching_prompt = prompt
+        self._coaching_active = True
+        self._saved_max_tokens = self.max_tokens
+        self.max_tokens = max_tokens
+        self.temperature = 0.6
+        logger.info(f"Coaching mode activated (max_tokens={max_tokens})")
+
+    def clear_coaching(self):
+        """Exit coaching mode."""
+        self._coaching_prompt = None
+        self._coaching_active = False
+        self.max_tokens = getattr(self, '_saved_max_tokens', 512)
+        self.temperature = 0.7
+        logger.info("Coaching mode deactivated")
+
+    @property
+    def coaching_active(self) -> bool:
+        return self._coaching_active
+
+    async def process_frame(self, image: Image.Image, prompt: Optional[str] = None) -> None:
+        """
+        Process a frame asynchronously. Updates self.current_response when done.
+        In coaching mode, uses the coaching prompt.
+        If already processing, this call is skipped.
+        """
+        if self._processing_lock.locked():
+            logger.debug("VLM busy, skipping frame")
+            return
+
+        async with self._processing_lock:
+            self.is_processing = True
+            try:
+                effective_prompt = prompt
+                if self._coaching_active and self._coaching_prompt:
+                    effective_prompt = self._coaching_prompt
+
+                response = await self.analyze_image(image, effective_prompt)
+                self.current_response = response
+            finally:
+                self.is_processing = False
 
     def update_api_settings(
         self, api_base: Optional[str] = None, api_key: Optional[str] = None

@@ -35,10 +35,15 @@ from aiortc import (
 )
 from aiortc.contrib.media import MediaRelay
 
+import cv2
+from PIL import Image
 from .vlm_service import VLMService
 from .video_processor import VideoProcessorTrack
 from .gpu_monitor import create_monitor
 from .rtsp_track import RTSPVideoTrack
+from .exercise_library import get_exercise, get_all_exercises, EXERCISE_MAP
+from .session_manager import SessionManager
+from .vlm_service import parse_json_response
 
 # Configure logging
 logging.basicConfig(
@@ -54,6 +59,15 @@ websockets = set()  # Track active WebSocket connections
 gpu_monitor = None  # GPU monitoring instance
 gpu_monitor_task = None  # Background task for GPU monitoring
 rtsp_tracks = {}  # Track active RTSP streams {session_id: (rtsp_track, processor_track)}
+session_manager: SessionManager = None  # PT session tracking
+active_exercise_id: str = None  # Currently selected exercise
+active_processor_tracks: set = set()  # Track active VideoProcessorTrack instances for pose config
+
+DEFAULT_COACHING_PROMPT = (
+    "You are a PT coach. Look at this exercise image and give ONE short correction or encouragement. "
+    "Name the exercise if you can tell. Max 2 sentences. No lists, no markdown. Example: "
+    "\"Nice squat depth! Try to keep your chest up more.\""
+)
 
 
 def is_port_available(port, host="0.0.0.0"):
@@ -341,8 +355,6 @@ async def websocket_handler(request):
                         try:
                             process_every = int(process_every)
                             if 1 <= process_every <= 3600:  # Up to 3600 frames (2 minutes @ 30fps)
-                                from .video_processor import VideoProcessorTrack
-
                                 old_value = VideoProcessorTrack.process_every_n_frames
                                 VideoProcessorTrack.process_every_n_frames = process_every
                                 logger.info(
@@ -360,13 +372,114 @@ async def websocket_handler(request):
                         except ValueError:
                             logger.error(f"Invalid processing interval: {process_every}")
 
+                    elif data.get("type") == "select_exercise":
+                        exercise_id = data.get("exercise_id", "")
+                        ex = get_exercise(exercise_id)
+                        if not ex:
+                            # Keep server state sane when an unknown id is sent.
+                            exercise_id = "general"
+                            ex = get_exercise("general")
+                        global active_exercise_id
+                        active_exercise_id = exercise_id
+                        if ex:
+                            await ws.send_json({"type": "exercise_selected", "exercise": ex.to_dict()})
+                            logger.info(f"Exercise selected: {ex.name}")
+                        else:
+                            await ws.send_json({"type": "exercise_selected", "exercise": {"id": "general", "name": "General Coach"}})
+
+                    elif data.get("type") == "start_exercise_session":
+                        global _last_coaching_text, _last_vlm_response
+                        _last_coaching_text = ""
+                        _last_vlm_response = ""
+                        exercise_id = data.get("exercise_id") or active_exercise_id or "general"
+                        ex = get_exercise(exercise_id)
+                        if not ex:
+                            logger.warning(f"Unknown exercise_id '{exercise_id}', falling back to general")
+                            exercise_id = "general"
+                            ex = get_exercise("general")
+                        active_exercise_id = exercise_id
+
+                        if exercise_id == "general":
+                            vlm_service.set_coaching_prompt(DEFAULT_COACHING_PROMPT)
+                        else:
+                            vlm_service.set_coaching_prompt(ex.build_vlm_prompt(), max_tokens=200)
+                        VideoProcessorTrack._coaching_active = True
+                        # Reset prior pose-tracking config so sessions don't leak rep state.
+                        for pt in active_processor_tracks:
+                            if pt.pose_detector.available:
+                                pt.pose_detector.clear_exercise()
+
+                        # Configure MediaPipe rep counting if a specific exercise is selected
+                        if ex and ex.primary_joint:
+                            for pt in active_processor_tracks:
+                                if pt.pose_detector.available:
+                                    pt.pose_detector.configure_exercise(
+                                        ex.primary_joint, ex.rep_down_threshold, ex.rep_up_threshold
+                                    )
+                            logger.info(f"Pose rep counting configured: joint={ex.primary_joint}")
+
+                        sid = await session_manager.start_session(exercise_id)
+                        ex_info = ex.to_dict() if ex else {"id": "general", "name": "General Coach"}
+                        await ws.send_json({"type": "session_started", "session_id": sid, "exercise": ex_info})
+                        logger.info(f"Session {sid} started: {ex_info.get('name', exercise_id)}")
+
+                    elif data.get("type") == "pause_session":
+                        session_manager.pause_session()
+                        await ws.send_json({"type": "session_paused"})
+
+                    elif data.get("type") == "resume_session":
+                        session_manager.resume_session()
+                        await ws.send_json({"type": "session_resumed"})
+
+                    elif data.get("type") == "end_exercise_session":
+                        _last_coaching_text = ""
+                        _last_vlm_response = ""
+                        VideoProcessorTrack._coaching_active = False
+                        vlm_service.clear_coaching()
+                        pose_reps = 0
+                        for pt in active_processor_tracks:
+                            if pt.pose_detector.available:
+                                pose_reps = max(pose_reps, pt.pose_detector.reps)
+                                pt.pose_detector.clear_exercise()
+                        if pose_reps > 0 and session_manager._rep_counter:
+                            session_manager._rep_counter.reps = pose_reps
+                        summary = await session_manager.end_session()
+                        if summary:
+                            _broadcast_json({"type": "session_summary", **summary})
+                            logger.info(f"Session ended: {summary.get('total_reps')} reps")
+                        await ws.send_json({"type": "session_ended", "summary": summary})
+
+                    elif data.get("type") == "user_question":
+                        question = data.get("text", "").strip()
+                        if question and vlm_service:
+                            frame_img = None
+                            for pt in active_processor_tracks:
+                                if pt.last_frame is not None:
+                                    frame_img = Image.fromarray(cv2.cvtColor(pt.last_frame, cv2.COLOR_BGR2RGB))
+                                    break
+                            if frame_img:
+                                prompt = (
+                                    f"{DEFAULT_COACHING_PROMPT}\n\n"
+                                    f"The patient is asking you a question. Look at the camera image and answer helpfully.\n"
+                                    f"Patient's question: {question}"
+                                )
+                                answer = await vlm_service.analyze_image(frame_img, prompt)
+                            else:
+                                prompt = (
+                                    f"You are a friendly physical therapy coach. Answer this question helpfully.\n"
+                                    f"Patient's question: {question}"
+                                )
+                                answer = await vlm_service.analyze_image(
+                                    Image.new("RGB", (100, 100), (200, 200, 200)), prompt
+                                )
+                            await ws.send_json({"type": "chat_response", "question": question, "answer": answer})
+                            logger.info(f"Chat Q: {question[:60]} -> A: {answer[:80]}")
+
                     elif data.get("type") == "update_max_latency":
                         max_latency = data.get("max_latency", 0.0)
                         try:
                             max_latency = float(max_latency)
                             if 0 <= max_latency <= 10.0:
-                                from .video_processor import VideoProcessorTrack
-
                                 old_value = VideoProcessorTrack.max_frame_latency
                                 VideoProcessorTrack.max_frame_latency = max_latency
                                 status = "disabled" if max_latency == 0 else f"{max_latency:.1f}s"
@@ -394,25 +507,57 @@ async def websocket_handler(request):
     return ws
 
 
+_last_coaching_text = ""
+_last_vlm_response = ""
+
 def broadcast_text_update(text: str, metrics: dict):
     """Broadcast text update and metrics to all connected WebSocket clients"""
+    global _last_coaching_text, _last_vlm_response
     if not websockets:
         return
 
-    message = json.dumps({"type": "vlm_response", "text": text, "metrics": metrics})
+    if text == _last_vlm_response:
+        return
+    _last_vlm_response = text
 
-    # Send to all connected clients
-    dead_websockets = set()
-    for ws in websockets:
-        try:
-            # Use asyncio to send without blocking
-            asyncio.create_task(ws.send_str(message))
-        except Exception as e:
-            logger.error(f"Error sending to websocket: {e}")
-            dead_websockets.add(ws)
+    _broadcast_json({"type": "vlm_response", "text": text, "metrics": metrics})
 
-    # Clean up dead connections
-    websockets.difference_update(dead_websockets)
+    if vlm_service and vlm_service.coaching_active and text and text != _last_coaching_text and not text.startswith("Error:") and text != "Initializing...":
+        _last_coaching_text = text
+
+        display_text = text
+        if active_exercise_id:
+            if active_exercise_id != "general":
+                parsed = parse_json_response(text)
+                if parsed:
+                    if parsed.get("exercise_detected", True):
+                        display_text = parsed.get("feedback") or text
+                        if session_manager and session_manager.active:
+                            asyncio.create_task(_record_frame_safe(parsed))
+                    else:
+                        display_text = parsed.get("feedback") or "I can't see the exercise clearly. Please adjust your position."
+            else:
+                # General exercise (non-JSON): record text feedback
+                if session_manager and session_manager.active:
+                    # Construct a minimal record for general coaching
+                    record = {
+                        "phase": "active",
+                        "form_score": 0,
+                        "corrections": [],
+                        "feedback": text,
+                        "rep_boundary": False,
+                    }
+                    asyncio.create_task(_record_frame_safe(record))
+
+        _broadcast_json({"type": "coaching_tip", "text": display_text, "metrics": metrics})
+
+
+async def _record_frame_safe(parsed: dict):
+    """Record a VLM analysis frame in the session manager, logging errors."""
+    try:
+        await session_manager.record_frame(parsed)
+    except Exception as e:
+        logger.error(f"Error recording frame data: {e}")
 
 
 def broadcast_gpu_stats(stats: dict):
@@ -433,6 +578,42 @@ def broadcast_gpu_stats(stats: dict):
 
     # Clean up dead connections
     websockets.difference_update(dead_websockets)
+
+
+def _broadcast_json(data: dict):
+    """Broadcast a JSON message to all connected WebSocket clients."""
+    if not websockets:
+        return
+    message = json.dumps(data)
+    dead = set()
+    for ws in websockets:
+        try:
+            asyncio.create_task(ws.send_str(message))
+        except Exception:
+            dead.add(ws)
+    websockets.difference_update(dead)
+
+
+def _on_pose_frame(pose_result: dict):
+    """Callback from MediaPipe pose detector -- runs synchronously on every few frames."""
+    if not pose_result.get("pose_detected"):
+        return
+
+    rep_completed = pose_result.get("rep_completed", False)
+    total_reps = pose_result.get("total_reps", 0)
+    angle = pose_result.get("angle")
+    role = pose_result.get("camera_role", "front")
+
+    _broadcast_json({
+        "type": "pose_update",
+        "camera_role": role,
+        "angle": angle,
+        "total_reps": total_reps,
+        "rep_completed": rep_completed,
+    })
+
+    if rep_completed:
+        _broadcast_json({"type": "rep_counted", "camera_role": role, "total_reps": total_reps})
 
 
 async def gpu_monitor_loop():
@@ -471,7 +652,8 @@ async def offer(request):
     """Handle WebRTC offer from client (supports both webcam and RTSP)"""
     params = await request.json()
     offer_sdp = RTCSessionDescription(sdp=params["sdp"], type=params["type"])
-    rtsp_url = params.get("rtsp_url")  # Optional RTSP URL for IP camera mode
+    rtsp_url = params.get("rtsp_url")
+    camera_role = params.get("role", "front")
 
     # Create RTCPeerConnection with STUN servers for Docker/NAT compatibility
     config = RTCConfiguration(
@@ -521,12 +703,15 @@ async def offer(request):
             relayed_rtsp = relay.subscribe(rtsp_track)
 
             processor_track = VideoProcessorTrack(
-                relayed_rtsp, vlm_service, text_callback=broadcast_text_update
+                relayed_rtsp, vlm_service,
+                text_callback=broadcast_text_update,
+                pose_callback=_on_pose_frame,
+                camera_role=camera_role,
             )
+            active_processor_tracks.add(processor_track)
 
-            # Add processor directly to peer connection
             pc.addTrack(processor_track)
-            logger.info("Added RTSP processor track to peer connection")
+            logger.info(f"Added RTSP processor track ({camera_role}) to peer connection")
 
         except Exception as e:
             logger.error(f"Failed to create RTSP track: {e}")
@@ -542,14 +727,16 @@ async def offer(request):
             logger.info(f"Received track: {track.kind}")
 
             if track.kind == "video":
-                # Create processor track with VLM service and text callback
                 processor_track = VideoProcessorTrack(
-                    relay.subscribe(track), vlm_service, text_callback=broadcast_text_update
+                    relay.subscribe(track), vlm_service,
+                    text_callback=broadcast_text_update,
+                    pose_callback=_on_pose_frame,
+                    camera_role=camera_role,
                 )
+                active_processor_tracks.add(processor_track)
 
-                # Add processed track back to connection
                 pc.addTrack(processor_track)
-                logger.info("Added processed video track back to peer connection")
+                logger.info(f"Added processed video track ({camera_role}) to peer connection")
 
             @track.on("ended")
             async def on_ended():
@@ -612,7 +799,9 @@ async def rtsp_start(request):
 
         # Create processor track (same as WebRTC path)
         processor_track = VideoProcessorTrack(
-            rtsp_track, vlm_service, text_callback=broadcast_text_update
+            rtsp_track, vlm_service,
+            text_callback=broadcast_text_update,
+            pose_callback=_on_pose_frame,
         )
 
         # Start background task to consume frames
@@ -719,6 +908,49 @@ async def rtsp_status(request):
         )
 
 
+async def dashboard(request):
+    """Serve the progress dashboard page"""
+    content = open(
+        os.path.join(os.path.dirname(__file__), "static", "dashboard.html"), "r"
+    ).read()
+    return web.Response(content_type="text/html", text=content)
+
+
+async def api_exercises(request):
+    """Return the full exercise library"""
+    return web.Response(
+        content_type="application/json",
+        text=json.dumps({"exercises": get_all_exercises()}),
+    )
+
+
+async def api_sessions(request):
+    """Return session history"""
+    limit = int(request.rel_url.query.get("limit", "50"))
+    offset = int(request.rel_url.query.get("offset", "0"))
+    sessions = await session_manager.get_sessions(limit, offset)
+    return web.Response(
+        content_type="application/json",
+        text=json.dumps({"sessions": sessions}),
+    )
+
+
+async def api_session_detail(request):
+    """Return detail for a single session"""
+    session_id = int(request.match_info["id"])
+    detail = await session_manager.get_session_detail(session_id)
+    if not detail:
+        return web.Response(status=404, text=json.dumps({"error": "not found"}))
+    return web.Response(content_type="application/json", text=json.dumps(detail))
+
+
+async def api_progress(request):
+    """Return progress data for charts"""
+    exercise_id = request.rel_url.query.get("exercise_id")
+    progress = await session_manager.get_progress(exercise_id)
+    return web.Response(content_type="application/json", text=json.dumps(progress))
+
+
 async def _stop_rtsp_session(session_id: str):
     """Helper function to stop an RTSP session"""
     if session_id in rtsp_tracks:
@@ -752,7 +984,11 @@ async def _stop_rtsp_session(session_id: str):
 
 async def on_startup(app):
     """Initialize resources on server startup"""
-    global gpu_monitor, gpu_monitor_task
+    global gpu_monitor, gpu_monitor_task, session_manager
+
+    # Initialize PT session manager
+    session_manager = SessionManager()
+    await session_manager.initialize()
 
     # Initialize GPU monitor
     try:
@@ -787,6 +1023,11 @@ async def on_shutdown(app):
     if gpu_monitor:
         gpu_monitor.cleanup()
         logger.info("GPU monitor cleaned up")
+
+    # Close session manager
+    if session_manager:
+        await session_manager.close()
+        logger.info("Session manager closed")
 
     # Close all websockets
     for ws in list(websockets):
@@ -824,6 +1065,15 @@ async def create_app(test_mode=False):
     app.router.add_get("/detect-services", detect_services)
     app.router.add_get("/ws", websocket_handler)
     app.router.add_post("/offer", offer)
+
+    # Dashboard
+    app.router.add_get("/dashboard", dashboard)
+
+    # PT Coach API endpoints
+    app.router.add_get("/api/exercises", api_exercises)
+    app.router.add_get("/api/sessions", api_sessions)
+    app.router.add_get("/api/sessions/{id}", api_session_detail)
+    app.router.add_get("/api/progress", api_progress)
 
     # RTSP endpoints
     app.router.add_post("/api/rtsp/start", rtsp_start)
