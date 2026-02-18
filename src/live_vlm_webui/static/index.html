@@ -3,12 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>RehabCoach - PT Exercise Assistant</title>
+    <title>RehabCoach - AI Physical Therapy Assistant</title>
     <link rel="icon" type="image/svg+xml" href="/favicon/favicon.svg">
     <script src="https://unpkg.com/lucide@latest"></script>
     <style>
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
         :root {
             --primary: #0e7c6b;
             --primary-light: #12a68e;
@@ -26,277 +25,109 @@
             --shadow: 0 2px 8px rgba(0,0,0,0.08);
             --shadow-lg: 0 8px 24px rgba(0,0,0,0.12);
         }
+        body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; display: flex; flex-direction: column; }
 
-        body {
-            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
-            background: var(--bg);
-            color: var(--text);
-            min-height: 100vh;
-            display: flex;
-            flex-direction: column;
-        }
-
-        /* ── Header ── */
         header {
             background: linear-gradient(135deg, var(--primary-dark), var(--primary));
-            color: white;
-            padding: 0 24px;
-            height: 56px;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            box-shadow: var(--shadow);
-            z-index: 100;
+            color: white; padding: 0 24px; height: 56px;
+            display: flex; align-items: center; justify-content: space-between;
+            box-shadow: var(--shadow); z-index: 100;
         }
         .header-left { display: flex; align-items: center; gap: 16px; }
-        .logo { font-size: 1.25rem; font-weight: 700; letter-spacing: -0.5px; display: flex; align-items: center; gap: 8px; }
+        .logo { font-size: 1.25rem; font-weight: 700; display: flex; align-items: center; gap: 8px; }
         .logo svg { width: 24px; height: 24px; }
-        .connection-badge {
-            font-size: 0.7rem;
-            padding: 2px 8px;
-            border-radius: 999px;
-            background: rgba(255,255,255,0.15);
-            display: flex; align-items: center; gap: 4px;
-        }
+        .connection-badge { font-size: 0.7rem; padding: 2px 8px; border-radius: 999px; background: rgba(255,255,255,0.15); display: flex; align-items: center; gap: 4px; }
         .connection-badge .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--danger); }
         .connection-badge.connected .dot { background: var(--success); }
         .header-right { display: flex; align-items: center; gap: 12px; }
         .header-right a { color: white; text-decoration: none; font-size: 0.85rem; opacity: 0.85; }
         .header-right a:hover { opacity: 1; }
+        #sessionTimer { font-family: 'Courier New', monospace; font-size: 1rem; background: rgba(255,255,255,0.15); padding: 4px 12px; border-radius: 8px; min-width: 70px; text-align: center; }
 
-        /* ── Timer ── */
-        #sessionTimer {
-            font-family: 'Courier New', monospace;
-            font-size: 1rem;
-            background: rgba(255,255,255,0.15);
-            padding: 4px 12px;
-            border-radius: 8px;
-            min-width: 70px;
-            text-align: center;
-        }
+        .main { flex: 1; display: grid; grid-template-columns: 1fr 320px; grid-template-rows: 1fr auto; gap: 0; overflow: hidden; }
 
-        /* ── Main layout ── */
-        .main { flex: 1; display: grid; grid-template-columns: 1fr 340px; grid-template-rows: 1fr auto; gap: 0; overflow: hidden; }
+        /* Video */
+        .video-area { position: relative; background: #0f172a; display: grid; grid-template-columns: 1fr; overflow: hidden; }
+        .video-area.dual { grid-template-columns: 1fr 1fr; }
+        .video-panel { position: relative; display: flex; align-items: center; justify-content: center; overflow: hidden; background: #0f172a; }
+        .video-panel + .video-panel { border-left: 2px solid #1e293b; }
+        .video-panel video { width: 100%; height: 100%; object-fit: contain; transform: scaleX(-1); }
+        .video-label { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.6); backdrop-filter: blur(4px); color: white; padding: 3px 14px; border-radius: 6px; font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 1.5px; pointer-events: none; }
 
-        /* ── Video Area ── */
-        .video-area {
-            position: relative;
-            background: #0f172a;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            overflow: hidden;
-        }
-        #videoElement {
-            width: 100%;
-            height: 100%;
-            object-fit: contain;
-            transform: scaleX(-1);
-        }
-
-        /* Overlay elements on video */
-        .video-overlay {
-            position: absolute;
-            top: 16px; left: 16px;
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
+        /* Coaching overlay on video */
+        .coaching-overlay {
+            position: absolute; bottom: 0; left: 0; right: 0;
+            background: linear-gradient(transparent, rgba(0,0,0,0.85));
+            padding: 40px 24px 20px;
             pointer-events: none;
         }
-        .overlay-badge {
-            background: rgba(0,0,0,0.65);
-            backdrop-filter: blur(6px);
-            color: white;
-            padding: 6px 14px;
-            border-radius: 8px;
-            font-size: 0.85rem;
-            display: flex; align-items: center; gap: 6px;
+        .coaching-text {
+            color: white; font-size: 1.15rem; line-height: 1.5;
+            text-shadow: 0 1px 4px rgba(0,0,0,0.5);
+            max-width: 700px;
+            min-height: 1.5em;
+            transition: opacity 0.3s ease;
         }
-        .phase-badge { font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
-
-        /* Form score ring (top-right of video) */
-        .form-ring-container {
-            position: absolute;
-            top: 16px; right: 16px;
-            width: 90px; height: 90px;
-            pointer-events: none;
-        }
-        .form-ring-container svg { width: 100%; height: 100%; }
-        .form-ring-label {
-            position: absolute;
-            inset: 0;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            color: white;
-            font-weight: 700;
-        }
-        .form-ring-label .score { font-size: 1.6rem; line-height: 1; }
-        .form-ring-label .label { font-size: 0.55rem; text-transform: uppercase; letter-spacing: 1px; opacity: 0.8; }
-
-        /* ── Sidebar ── */
-        .sidebar {
-            background: var(--surface);
-            border-left: 1px solid #e2e8f0;
-            display: flex;
-            flex-direction: column;
-            overflow-y: auto;
-        }
-        .sidebar-section {
-            padding: 16px 20px;
-            border-bottom: 1px solid #e2e8f0;
-        }
-        .sidebar-section h3 {
-            font-size: 0.75rem;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-            color: var(--text-muted);
-            margin-bottom: 10px;
+        .coaching-text.fresh { animation: fadeIn 0.3s ease; }
+        @keyframes fadeIn { from { opacity: 0.3; } to { opacity: 1; } }
+        .coaching-meta {
+            display: flex; gap: 16px; margin-top: 8px;
+            font-size: 0.7rem; color: rgba(255,255,255,0.5);
         }
 
-        /* Exercise selector */
-        .exercise-select {
-            width: 100%;
-            padding: 10px 12px;
-            border: 1px solid #cbd5e1;
-            border-radius: var(--radius);
-            background: var(--surface);
-            font-size: 0.9rem;
-            color: var(--text);
-            cursor: pointer;
-        }
-        .exercise-desc {
-            font-size: 0.8rem;
-            color: var(--text-muted);
-            margin-top: 8px;
-            line-height: 1.5;
-        }
+        /* Sidebar */
+        .sidebar { background: var(--surface); border-left: 1px solid #e2e8f0; display: flex; flex-direction: column; overflow-y: auto; }
+        .sidebar-section { padding: 16px 20px; border-bottom: 1px solid #e2e8f0; }
+        .sidebar-section h3 { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 1px; color: var(--text-muted); margin-bottom: 10px; }
 
-        /* Camera selector */
-        .camera-select {
-            width: 100%;
-            padding: 8px 12px;
-            border: 1px solid #cbd5e1;
-            border-radius: var(--radius);
-            background: var(--surface);
-            font-size: 0.85rem;
-            color: var(--text);
-            margin-bottom: 8px;
-        }
+        .mode-toggle { display: flex; border: 1px solid #cbd5e1; border-radius: var(--radius); overflow: hidden; margin-bottom: 10px; }
+        .mode-toggle button { flex: 1; padding: 8px; border: none; background: var(--surface); font-size: 0.8rem; font-weight: 600; cursor: pointer; color: var(--text-muted); transition: all 0.15s; }
+        .mode-toggle button.active { background: var(--primary); color: white; }
 
-        /* Form quality bar */
-        .form-bar-track {
-            height: 10px;
-            background: #e2e8f0;
-            border-radius: 999px;
-            overflow: hidden;
-            margin-top: 6px;
-        }
-        .form-bar-fill {
-            height: 100%;
-            border-radius: 999px;
-            transition: width 0.4s ease, background 0.4s ease;
-            width: 0%;
-        }
-        .form-score-value { font-size: 1.5rem; font-weight: 700; color: var(--primary); }
+        .exercise-select, .camera-select { width: 100%; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: var(--radius); background: var(--surface); font-size: 0.85rem; color: var(--text); margin-bottom: 8px; }
+        .exercise-picker { display: none; }
+        .exercise-picker.visible { display: block; }
+        .exercise-desc { font-size: 0.8rem; color: var(--text-muted); margin-top: 4px; line-height: 1.4; }
 
-        /* Corrections */
-        .corrections-list {
-            list-style: none;
-            display: flex;
-            flex-direction: column;
-            gap: 6px;
-            max-height: 140px;
-            overflow-y: auto;
-        }
-        .correction-item {
-            display: flex;
-            align-items: flex-start;
-            gap: 8px;
-            padding: 8px 10px;
-            background: #fef3c7;
-            border-radius: 8px;
-            font-size: 0.82rem;
-            color: #92400e;
-            border-left: 3px solid var(--warning);
-        }
-        .correction-item.good {
-            background: #dcfce7;
-            color: #166534;
-            border-left-color: var(--success);
-        }
-        .correction-item svg { flex-shrink: 0; width: 16px; height: 16px; margin-top: 1px; }
+        .cam-row { display: flex; gap: 8px; align-items: center; margin-bottom: 6px; }
+        .cam-row label { font-size: 0.7rem; font-weight: 700; color: var(--text-muted); min-width: 36px; text-transform: uppercase; }
+        .cam-row select { flex: 1; }
+        .cam-btn { padding: 6px 14px; border: 1px solid #cbd5e1; border-radius: 8px; background: var(--surface); font-size: 0.78rem; cursor: pointer; display: flex; align-items: center; gap: 4px; white-space: nowrap; }
+        .cam-btn:hover { border-color: var(--primary); color: var(--primary); }
+        .cam-btn.active { background: var(--primary); color: white; border-color: var(--primary); }
+        .cam-btn svg { width: 14px; height: 14px; }
 
-        /* Feedback bubble */
-        .feedback-bubble {
-            background: var(--surface-alt);
-            border-radius: var(--radius);
-            padding: 12px 16px;
-            font-size: 0.9rem;
-            font-style: italic;
-            color: var(--text-muted);
-            min-height: 42px;
-            display: flex;
-            align-items: center;
-        }
+        /* Coach history in sidebar */
+        .coach-history { display: flex; flex-direction: column; gap: 8px; max-height: 300px; overflow-y: auto; }
+        .coach-msg { padding: 10px 12px; background: var(--surface-alt); border-radius: 10px; font-size: 0.85rem; line-height: 1.45; color: var(--text); border-left: 3px solid var(--primary); }
+        .coach-msg.user-msg { background: #e0f2fe; border-left-color: #0284c7; text-align: right; }
+        .coach-msg.user-msg .msg-label { color: #0284c7; }
+        .coach-msg .msg-label { font-size: 0.6rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: var(--primary); margin-bottom: 2px; }
+        .coach-msg .timestamp { font-size: 0.65rem; color: var(--text-muted); margin-top: 4px; }
+        .chat-input-row { display: flex; gap: 6px; margin-top: 8px; }
+        .chat-input-row input { flex: 1; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 0.85rem; }
+        .chat-input-row input:focus { outline: none; border-color: var(--primary); }
+        .chat-send-btn, .chat-mic-btn { width: 36px; height: 36px; border-radius: 8px; border: 1px solid #cbd5e1; background: var(--surface); cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.15s; flex-shrink: 0; }
+        .chat-send-btn:hover { background: var(--primary); color: white; border-color: var(--primary); }
+        .chat-mic-btn:hover { background: #0284c7; color: white; border-color: #0284c7; }
+        .chat-mic-btn.listening { background: var(--danger); color: white; border-color: var(--danger); animation: micPulse 1s ease infinite; }
+        @keyframes micPulse { 0%,100%{opacity:1} 50%{opacity:0.6} }
+        .chat-send-btn svg, .chat-mic-btn svg { width: 16px; height: 16px; }
 
-        /* Latency info */
-        .latency-row {
-            display: flex;
-            gap: 16px;
-            font-size: 0.75rem;
-            color: var(--text-muted);
-        }
+        .latency-row { display: flex; gap: 16px; font-size: 0.75rem; color: var(--text-muted); flex-wrap: wrap; }
         .latency-row span strong { color: var(--text); }
 
-        /* ── Bottom Bar ── */
-        .bottom-bar {
-            grid-column: 1 / -1;
-            background: var(--surface);
-            border-top: 1px solid #e2e8f0;
-            padding: 12px 24px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 24px;
-            box-shadow: 0 -2px 8px rgba(0,0,0,0.05);
-        }
-
-        .rep-display {
-            display: flex;
-            align-items: baseline;
-            gap: 8px;
-        }
-        .rep-count {
-            font-size: 3rem;
-            font-weight: 800;
-            color: var(--primary);
-            line-height: 1;
-            transition: transform 0.15s ease;
-        }
-        .rep-count.pulse {
-            animation: repPulse 0.35s ease;
-        }
-        @keyframes repPulse {
-            0% { transform: scale(1); }
-            40% { transform: scale(1.25); color: var(--accent); }
-            100% { transform: scale(1); }
-        }
+        /* Bottom bar */
+        .bottom-bar { grid-column: 1 / -1; background: var(--surface); border-top: 1px solid #e2e8f0; padding: 12px 24px; display: flex; align-items: center; justify-content: center; gap: 24px; box-shadow: 0 -2px 8px rgba(0,0,0,0.05); }
+        .rep-display { display: flex; align-items: baseline; gap: 8px; }
+        .rep-count { font-size: 3rem; font-weight: 800; color: var(--primary); line-height: 1; }
+        .rep-count.pulse { animation: repPulse 0.35s ease; }
+        @keyframes repPulse { 0%{transform:scale(1)} 40%{transform:scale(1.25);color:var(--accent)} 100%{transform:scale(1)} }
         .rep-label { font-size: 0.85rem; color: var(--text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: 1px; }
+        .rep-section { display: none; }
+        .rep-section.visible { display: flex; }
 
-        .btn {
-            padding: 10px 24px;
-            border: none;
-            border-radius: var(--radius);
-            font-size: 0.9rem;
-            font-weight: 600;
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            transition: all 0.15s ease;
-        }
+        .btn { padding: 10px 24px; border: none; border-radius: var(--radius); font-size: 0.9rem; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 6px; transition: all 0.15s ease; }
         .btn svg { width: 18px; height: 18px; }
         .btn-primary { background: var(--primary); color: white; }
         .btn-primary:hover { background: var(--primary-light); }
@@ -305,182 +136,124 @@
         .btn-outline { background: transparent; border: 2px solid #cbd5e1; color: var(--text); }
         .btn-outline:hover { border-color: var(--primary); color: var(--primary); }
         .btn:disabled { opacity: 0.4; cursor: not-allowed; }
-
-        .btn-icon {
-            width: 40px; height: 40px;
-            border-radius: 50%;
-            display: flex; align-items: center; justify-content: center;
-            background: var(--surface-alt);
-            border: 1px solid #cbd5e1;
-            cursor: pointer;
-            transition: all 0.15s ease;
-        }
+        .btn-icon { width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: var(--surface-alt); border: 1px solid #cbd5e1; cursor: pointer; transition: all 0.15s; }
         .btn-icon:hover { background: var(--primary); color: white; border-color: var(--primary); }
         .btn-icon.active { background: var(--primary); color: white; border-color: var(--primary); }
         .btn-icon svg { width: 18px; height: 18px; }
 
-        /* ── API Settings Modal ── */
-        .modal-overlay {
-            position: fixed; inset: 0;
-            background: rgba(0,0,0,0.4);
-            display: none;
-            align-items: center;
-            justify-content: center;
-            z-index: 200;
-        }
+        .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.4); display: none; align-items: center; justify-content: center; z-index: 200; }
         .modal-overlay.show { display: flex; }
-        .modal {
-            background: var(--surface);
-            border-radius: 16px;
-            padding: 24px;
-            width: 90%;
-            max-width: 440px;
-            box-shadow: var(--shadow-lg);
-        }
+        .modal { background: var(--surface); border-radius: 16px; padding: 24px; width: 90%; max-width: 440px; box-shadow: var(--shadow-lg); }
         .modal h2 { margin-bottom: 16px; font-size: 1.1rem; }
         .modal label { display: block; font-size: 0.8rem; font-weight: 600; color: var(--text-muted); margin-bottom: 4px; margin-top: 12px; }
-        .modal input, .modal select {
-            width: 100%;
-            padding: 8px 12px;
-            border: 1px solid #cbd5e1;
-            border-radius: 8px;
-            font-size: 0.9rem;
-        }
+        .modal input, .modal select { width: 100%; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 0.9rem; }
         .modal-actions { display: flex; gap: 8px; margin-top: 20px; justify-content: flex-end; }
 
-        /* ── Responsive ── */
         @media (max-width: 800px) {
-            .main { grid-template-columns: 1fr; grid-template-rows: 50vh auto auto; }
+            .main { grid-template-columns: 1fr; grid-template-rows: 55vh auto auto; }
             .sidebar { border-left: none; border-top: 1px solid #e2e8f0; }
+            .video-area.dual { grid-template-columns: 1fr; grid-template-rows: 1fr 1fr; }
         }
     </style>
 </head>
 <body>
 
-<!-- Header -->
 <header>
     <div class="header-left">
-        <div class="logo">
-            <i data-lucide="heart-pulse"></i>
-            RehabCoach
-        </div>
-        <div class="connection-badge" id="connectionBadge">
-            <span class="dot"></span>
-            <span id="connectionText">Disconnected</span>
-        </div>
+        <div class="logo"><i data-lucide="heart-pulse"></i> RehabCoach</div>
+        <div class="connection-badge" id="connectionBadge"><span class="dot"></span><span id="connectionText">Disconnected</span></div>
     </div>
     <div style="display:flex;align-items:center;gap:16px;">
         <div id="sessionTimer" style="display:none;">00:00</div>
     </div>
     <div class="header-right">
-        <a href="/dashboard">Progress Dashboard</a>
+        <a href="/dashboard">Progress</a>
         <button class="btn-icon" id="settingsBtn" title="API Settings"><i data-lucide="settings"></i></button>
         <button class="btn-icon" id="voiceToggle" title="Toggle voice feedback"><i data-lucide="volume-2"></i></button>
     </div>
 </header>
 
-<!-- Main -->
 <div class="main">
-    <!-- Video -->
-    <div class="video-area">
-        <video id="videoElement" autoplay playsinline muted></video>
-
-        <div class="video-overlay">
-            <div class="overlay-badge phase-badge" id="phaseBadge" style="display:none;">
-                <i data-lucide="activity"></i>
-                <span id="phaseText">--</span>
-            </div>
-            <div class="overlay-badge" id="latencyBadge" style="display:none;">
-                <i data-lucide="gauge"></i>
-                <span id="latencyText">--ms</span>
+    <div class="video-area" id="videoArea">
+        <div class="video-panel" id="frontPanel">
+            <video id="frontVideo" autoplay playsinline muted></video>
+            <div class="video-label">FRONT</div>
+            <div class="coaching-overlay" id="coachingOverlay">
+                <div class="coaching-text" id="coachingText">Start a session to receive real-time coaching.</div>
+                <div class="coaching-meta">
+                    <span>Latency: <strong id="latencyVal">--</strong></span>
+                    <span>Inferences: <strong id="inferenceCount">0</strong></span>
+                </div>
             </div>
         </div>
-
-        <div class="form-ring-container" id="formRing" style="display:none;">
-            <svg viewBox="0 0 100 100">
-                <circle cx="50" cy="50" r="42" fill="none" stroke="rgba(255,255,255,0.15)" stroke-width="7"/>
-                <circle id="formRingCircle" cx="50" cy="50" r="42" fill="none" stroke="#22c55e" stroke-width="7"
-                    stroke-dasharray="264" stroke-dashoffset="264" stroke-linecap="round"
-                    transform="rotate(-90 50 50)" style="transition: stroke-dashoffset 0.5s ease, stroke 0.5s ease;"/>
-            </svg>
-            <div class="form-ring-label">
-                <span class="score" id="formScoreRing">-</span>
-                <span class="label">Form</span>
-            </div>
+        <div class="video-panel" id="sidePanel" style="display:none;">
+            <video id="sideVideo" autoplay playsinline muted></video>
+            <div class="video-label">SIDE</div>
         </div>
     </div>
 
-    <!-- Sidebar -->
     <div class="sidebar">
         <div class="sidebar-section">
-            <h3>Exercise</h3>
-            <select class="exercise-select" id="exerciseSelect">
-                <option value="">-- Select an exercise --</option>
-            </select>
-            <div class="exercise-desc" id="exerciseDesc">Select an exercise to begin.</div>
-        </div>
-
-        <div class="sidebar-section">
-            <h3>Camera</h3>
-            <select class="camera-select" id="cameraSelect">
-                <option value="">Loading cameras...</option>
-            </select>
-            <button class="btn btn-outline" id="startCameraBtn" style="width:100%;justify-content:center;">
-                <i data-lucide="video"></i> Start Camera
-            </button>
-        </div>
-
-        <div class="sidebar-section">
-            <h3>Form Quality</h3>
-            <div style="display:flex;align-items:baseline;gap:8px;">
-                <span class="form-score-value" id="formScoreValue">-</span>
-                <span style="color:var(--text-muted);font-size:0.8rem;">/ 10</span>
+            <h3>Mode</h3>
+            <div class="mode-toggle">
+                <button id="modeGeneral" class="active">General Coach</button>
+                <button id="modeGuided">Guided Exercise</button>
             </div>
-            <div class="form-bar-track">
-                <div class="form-bar-fill" id="formBarFill"></div>
+            <div class="exercise-picker" id="exercisePicker">
+                <select class="exercise-select" id="exerciseSelect"></select>
+                <div class="exercise-desc" id="exerciseDesc"></div>
+            </div>
+            <div id="generalDesc" style="font-size:0.8rem;color:var(--text-muted);line-height:1.4;">
+                The AI coach watches your camera and gives real-time posture tips for any exercise. Just start moving!
+            </div>
+        </div>
+
+        <div class="sidebar-section">
+            <h3>Cameras</h3>
+            <div class="cam-row">
+                <label>Front</label>
+                <select class="camera-select" id="frontCameraSelect"><option value="">Loading...</option></select>
+                <button class="cam-btn" id="frontCamBtn"><i data-lucide="video"></i> Start</button>
+            </div>
+            <div class="cam-row">
+                <label>Side</label>
+                <select class="camera-select" id="sideCameraSelect"><option value="">Loading...</option></select>
+                <button class="cam-btn" id="sideCamBtn"><i data-lucide="video"></i> Start</button>
             </div>
         </div>
 
         <div class="sidebar-section" style="flex:1;">
-            <h3>Corrections</h3>
-            <ul class="corrections-list" id="correctionsList">
-                <li style="color:var(--text-muted);font-size:0.85rem;">Corrections will appear here during exercise.</li>
-            </ul>
-        </div>
-
-        <div class="sidebar-section">
-            <h3>Coach Feedback</h3>
-            <div class="feedback-bubble" id="feedbackBubble">Start an exercise session to receive coaching.</div>
+            <h3>Chat with Coach</h3>
+            <div class="coach-history" id="coachHistory">
+                <div style="color:var(--text-muted);font-size:0.85rem;">Ask questions or get automatic tips during your session.</div>
+            </div>
+            <div class="chat-input-row">
+                <input type="text" id="chatInput" placeholder="Ask your coach..." />
+                <button class="chat-send-btn" id="chatSendBtn" title="Send"><i data-lucide="send"></i></button>
+                <button class="chat-mic-btn" id="chatMicBtn" title="Voice input"><i data-lucide="mic"></i></button>
+            </div>
         </div>
 
         <div class="sidebar-section">
             <div class="latency-row">
-                <span>Latency: <strong id="latencyVal">--</strong></span>
+                <span>Last: <strong id="latencyVal2">--</strong></span>
                 <span>Avg: <strong id="avgLatencyVal">--</strong></span>
-                <span>Inferences: <strong id="inferenceCount">0</strong></span>
+                <span>Total: <strong id="inferenceCount2">0</strong></span>
             </div>
         </div>
     </div>
 
-    <!-- Bottom Bar -->
     <div class="bottom-bar">
-        <div class="rep-display">
+        <div class="rep-display rep-section" id="repSection">
             <span class="rep-count" id="repCount">0</span>
             <span class="rep-label">Reps</span>
         </div>
-        <button class="btn btn-primary" id="startBtn" disabled>
-            <i data-lucide="play"></i> Start Session
-        </button>
-        <button class="btn btn-outline" id="pauseBtn" style="display:none;">
-            <i data-lucide="pause"></i> Pause
-        </button>
-        <button class="btn btn-danger" id="endBtn" style="display:none;">
-            <i data-lucide="square"></i> End Session
-        </button>
+        <button class="btn btn-primary" id="startBtn" disabled><i data-lucide="play"></i> Start Coaching</button>
+        <button class="btn btn-outline" id="pauseBtn" style="display:none;"><i data-lucide="pause"></i> Pause</button>
+        <button class="btn btn-danger" id="endBtn" style="display:none;"><i data-lucide="square"></i> End Session</button>
     </div>
 </div>
 
-<!-- Settings Modal -->
 <div class="modal-overlay" id="settingsModal">
     <div class="modal">
         <h2>API Settings</h2>
@@ -498,56 +271,47 @@
 </div>
 
 <script>
-// ─── State ───
 let websocket = null;
-let peerConnection = null;
-let localStream = null;
 let exercises = [];
-let selectedExercise = null;
+let selectedExerciseId = 'general';
+let guidedMode = false;
 let sessionActive = false;
 let sessionPaused = false;
 let sessionStartTime = null;
 let timerInterval = null;
 let voiceEnabled = true;
-let ttsQueue = [];
-let speaking = false;
-let lastSpokenCorrection = '';
 let lastSpokenTime = 0;
+let coachMessages = [];
 
-// ─── DOM refs ───
-const videoEl = document.getElementById('videoElement');
+const cams = { front: { stream: null, pc: null, started: false }, side: { stream: null, pc: null, started: false } };
+let roleReps = { front: 0, side: 0 };
+
+const frontVideo = document.getElementById('frontVideo');
+const sideVideo = document.getElementById('sideVideo');
+const videoArea = document.getElementById('videoArea');
+const sidePanel = document.getElementById('sidePanel');
+const coachingText = document.getElementById('coachingText');
+const coachHistory = document.getElementById('coachHistory');
 const exerciseSelect = document.getElementById('exerciseSelect');
 const exerciseDesc = document.getElementById('exerciseDesc');
-const cameraSelect = document.getElementById('cameraSelect');
-const startCameraBtn = document.getElementById('startCameraBtn');
+const exercisePicker = document.getElementById('exercisePicker');
+const generalDesc = document.getElementById('generalDesc');
+const frontCameraSelect = document.getElementById('frontCameraSelect');
+const sideCameraSelect = document.getElementById('sideCameraSelect');
+const frontCamBtn = document.getElementById('frontCamBtn');
+const sideCamBtn = document.getElementById('sideCamBtn');
 const startBtn = document.getElementById('startBtn');
 const pauseBtn = document.getElementById('pauseBtn');
 const endBtn = document.getElementById('endBtn');
 const repCountEl = document.getElementById('repCount');
-const formScoreValue = document.getElementById('formScoreValue');
-const formBarFill = document.getElementById('formBarFill');
-const correctionsList = document.getElementById('correctionsList');
-const feedbackBubble = document.getElementById('feedbackBubble');
-const phaseBadge = document.getElementById('phaseBadge');
-const phaseText = document.getElementById('phaseText');
-const formRing = document.getElementById('formRing');
-const formRingCircle = document.getElementById('formRingCircle');
-const formScoreRing = document.getElementById('formScoreRing');
+const repSection = document.getElementById('repSection');
 const connectionBadge = document.getElementById('connectionBadge');
 const connectionText = document.getElementById('connectionText');
 const sessionTimerEl = document.getElementById('sessionTimer');
-const latencyVal = document.getElementById('latencyVal');
-const avgLatencyVal = document.getElementById('avgLatencyVal');
-const inferenceCount = document.getElementById('inferenceCount');
-const latencyBadge = document.getElementById('latencyBadge');
-const latencyTextEl = document.getElementById('latencyText');
 const voiceToggle = document.getElementById('voiceToggle');
-const settingsBtn = document.getElementById('settingsBtn');
-const settingsModal = document.getElementById('settingsModal');
-const modalCloseBtn = document.getElementById('modalCloseBtn');
-const modalSaveBtn = document.getElementById('modalSaveBtn');
+const modeGeneral = document.getElementById('modeGeneral');
+const modeGuided = document.getElementById('modeGuided');
 
-// ─── Init ───
 document.addEventListener('DOMContentLoaded', async () => {
     lucide.createIcons();
     await loadExercises();
@@ -557,8 +321,11 @@ document.addEventListener('DOMContentLoaded', async () => {
 });
 
 function setupEventListeners() {
+    modeGeneral.addEventListener('click', () => setMode(false));
+    modeGuided.addEventListener('click', () => setMode(true));
     exerciseSelect.addEventListener('change', onExerciseChange);
-    startCameraBtn.addEventListener('click', toggleCamera);
+    frontCamBtn.addEventListener('click', () => toggleCamera('front'));
+    sideCamBtn.addEventListener('click', () => toggleCamera('side'));
     startBtn.addEventListener('click', startSession);
     pauseBtn.addEventListener('click', togglePause);
     endBtn.addEventListener('click', endSession);
@@ -567,310 +334,291 @@ function setupEventListeners() {
         voiceToggle.classList.toggle('active', voiceEnabled);
         if (!voiceEnabled) window.speechSynthesis && window.speechSynthesis.cancel();
     });
-    settingsBtn.addEventListener('click', () => { settingsModal.classList.add('show'); loadModels(); });
-    modalCloseBtn.addEventListener('click', () => settingsModal.classList.remove('show'));
-    modalSaveBtn.addEventListener('click', saveSettings);
+    document.getElementById('settingsBtn').addEventListener('click', () => { document.getElementById('settingsModal').classList.add('show'); loadModels(); });
+    document.getElementById('modalCloseBtn').addEventListener('click', () => document.getElementById('settingsModal').classList.remove('show'));
+    document.getElementById('modalSaveBtn').addEventListener('click', saveSettings);
+    document.getElementById('chatSendBtn').addEventListener('click', sendChatQuestion);
+    document.getElementById('chatInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') sendChatQuestion(); });
+    document.getElementById('chatMicBtn').addEventListener('click', toggleMic);
     voiceToggle.classList.add('active');
 }
 
-// ─── Exercises ───
+function setMode(guided) {
+    guidedMode = guided;
+    modeGeneral.classList.toggle('active', !guided);
+    modeGuided.classList.toggle('active', guided);
+    exercisePicker.classList.toggle('visible', guided);
+    generalDesc.style.display = guided ? 'none' : 'block';
+    repSection.classList.toggle('visible', guided && selectedExerciseId !== 'general');
+    if (!guided) selectedExerciseId = 'general';
+    updateStartBtn();
+}
+
 async function loadExercises() {
     try {
         const res = await fetch('/api/exercises');
         const data = await res.json();
         exercises = data.exercises || [];
-        exerciseSelect.innerHTML = '<option value="">-- Select an exercise --</option>';
+        exerciseSelect.innerHTML = '';
+        const specific = exercises.filter(e => e.id !== 'general');
         const cats = {};
-        exercises.forEach(ex => {
-            cats[ex.category] = cats[ex.category] || [];
-            cats[ex.category].push(ex);
-        });
+        specific.forEach(ex => { cats[ex.category] = cats[ex.category] || []; cats[ex.category].push(ex); });
         for (const [cat, exs] of Object.entries(cats)) {
             const group = document.createElement('optgroup');
             group.label = cat.charAt(0).toUpperCase() + cat.slice(1);
-            exs.forEach(ex => {
-                const opt = document.createElement('option');
-                opt.value = ex.id;
-                opt.textContent = ex.name;
-                group.appendChild(opt);
-            });
+            exs.forEach(ex => { const o = document.createElement('option'); o.value = ex.id; o.textContent = ex.name; group.appendChild(o); });
             exerciseSelect.appendChild(group);
         }
-    } catch (e) {
-        console.error('Failed to load exercises', e);
-    }
+        if (specific.length > 0) { selectedExerciseId = specific[0].id; exerciseDesc.textContent = specific[0].description; }
+    } catch (e) { console.error('Failed to load exercises', e); }
 }
 
 function onExerciseChange() {
-    const id = exerciseSelect.value;
-    selectedExercise = exercises.find(e => e.id === id) || null;
-    if (selectedExercise) {
-        exerciseDesc.textContent = selectedExercise.description;
-        startBtn.disabled = !localStream;
-        if (websocket && websocket.readyState === WebSocket.OPEN) {
-            websocket.send(JSON.stringify({ type: 'select_exercise', exercise_id: id }));
-        }
-    } else {
-        exerciseDesc.textContent = 'Select an exercise to begin.';
-        startBtn.disabled = true;
-    }
+    const ex = exercises.find(e => e.id === exerciseSelect.value);
+    if (ex) { selectedExerciseId = ex.id; exerciseDesc.textContent = ex.description; }
+    repSection.classList.toggle('visible', guidedMode && ex && ex.primary_joint);
+    updateStartBtn();
 }
 
-// ─── Camera ───
+function updateStartBtn() {
+    startBtn.disabled = !(cams.front.started || cams.side.started);
+}
+
+// ─── Cameras ───
 async function enumerateCameras() {
     try {
-        const tempStream = await navigator.mediaDevices.getUserMedia({ video: true });
-        tempStream.getTracks().forEach(t => t.stop());
-        const devices = await navigator.mediaDevices.enumerateDevices();
-        const cameras = devices.filter(d => d.kind === 'videoinput');
-        cameraSelect.innerHTML = '';
-        cameras.forEach((cam, i) => {
-            const opt = document.createElement('option');
-            opt.value = cam.deviceId;
-            opt.textContent = cam.label || `Camera ${i + 1}`;
-            cameraSelect.appendChild(opt);
+        const ts = await navigator.mediaDevices.getUserMedia({ video: true });
+        ts.getTracks().forEach(t => t.stop());
+        const devs = await navigator.mediaDevices.enumerateDevices();
+        const cams_list = devs.filter(d => d.kind === 'videoinput');
+        [frontCameraSelect, sideCameraSelect].forEach(sel => {
+            sel.innerHTML = '';
+            cams_list.forEach((c, i) => { const o = document.createElement('option'); o.value = c.deviceId; o.textContent = c.label || `Camera ${i+1}`; sel.appendChild(o); });
         });
-    } catch (e) {
-        cameraSelect.innerHTML = '<option>Camera access denied</option>';
-    }
+    } catch { [frontCameraSelect, sideCameraSelect].forEach(s => s.innerHTML = '<option>No camera access</option>'); }
 }
 
-let cameraStarted = false;
-async function toggleCamera() {
-    if (cameraStarted) {
-        stopCamera();
-        return;
-    }
-    await startCamera();
+function updateDualLayout() {
+    sidePanel.style.display = cams.side.started ? 'flex' : 'none';
+    videoArea.classList.toggle('dual', cams.side.started);
 }
 
-async function startCamera() {
+async function toggleCamera(role) { if (cams[role].started) { stopCamera(role); return; } await startCamera(role); }
+
+async function startCamera(role) {
+    const selEl = role === 'front' ? frontCameraSelect : sideCameraSelect;
+    const vidEl = role === 'front' ? frontVideo : sideVideo;
+    const btn = role === 'front' ? frontCamBtn : sideCamBtn;
     try {
-        const deviceId = cameraSelect.value;
-        const constraints = { video: { width: { ideal: 1280 }, height: { ideal: 720 } } };
-        if (deviceId) constraints.video.deviceId = { exact: deviceId };
-        localStream = await navigator.mediaDevices.getUserMedia(constraints);
-        videoEl.srcObject = localStream;
-        cameraStarted = true;
-        startCameraBtn.innerHTML = '<i data-lucide="video-off"></i> Stop Camera';
-        lucide.createIcons({ nodes: [startCameraBtn] });
-        if (selectedExercise) startBtn.disabled = false;
-
-        await setupWebRTC();
-    } catch (e) {
-        console.error('Camera error:', e);
-        alert('Could not access camera: ' + e.message);
-    }
+        const c = { video: { width: { ideal: 1280 }, height: { ideal: 720 } } };
+        if (selEl.value) c.video.deviceId = { exact: selEl.value };
+        const stream = await navigator.mediaDevices.getUserMedia(c);
+        cams[role].stream = stream; vidEl.srcObject = stream; cams[role].started = true;
+        btn.innerHTML = '<i data-lucide="video-off"></i> Stop'; btn.classList.add('active');
+        lucide.createIcons({ nodes: [btn] }); updateDualLayout(); updateStartBtn();
+        await setupWebRTC(role);
+    } catch (e) { alert('Camera error: ' + e.message); }
 }
 
-function stopCamera() {
-    if (localStream) {
-        localStream.getTracks().forEach(t => t.stop());
-        localStream = null;
-    }
-    if (peerConnection) {
-        peerConnection.close();
-        peerConnection = null;
-    }
-    videoEl.srcObject = null;
-    cameraStarted = false;
-    startCameraBtn.innerHTML = '<i data-lucide="video"></i> Start Camera';
-    lucide.createIcons({ nodes: [startCameraBtn] });
-    startBtn.disabled = true;
+function stopCamera(role) {
+    const vidEl = role === 'front' ? frontVideo : sideVideo;
+    const btn = role === 'front' ? frontCamBtn : sideCamBtn;
+    if (cams[role].stream) { cams[role].stream.getTracks().forEach(t => t.stop()); cams[role].stream = null; }
+    if (cams[role].pc) { cams[role].pc.close(); cams[role].pc = null; }
+    vidEl.srcObject = null; cams[role].started = false;
+    btn.innerHTML = '<i data-lucide="video"></i> Start'; btn.classList.remove('active');
+    lucide.createIcons({ nodes: [btn] }); updateDualLayout(); updateStartBtn();
 }
 
-async function setupWebRTC() {
-    peerConnection = new RTCPeerConnection({
-        iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
-    });
-    localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
-
-    peerConnection.ontrack = (event) => {
-        if (event.streams && event.streams[0]) {
-            videoEl.srcObject = event.streams[0];
-        }
-    };
-
-    const offer = await peerConnection.createOffer();
-    await peerConnection.setLocalDescription(offer);
-
-    const res = await fetch('/offer', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sdp: offer.sdp, type: offer.type })
-    });
+async function setupWebRTC(role) {
+    const stream = cams[role].stream;
+    const vidEl = role === 'front' ? frontVideo : sideVideo;
+    const pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
+    cams[role].pc = pc;
+    stream.getTracks().forEach(t => pc.addTrack(t, stream));
+    pc.ontrack = (ev) => { if (ev.streams && ev.streams[0]) vidEl.srcObject = ev.streams[0]; };
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    const res = await fetch('/offer', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sdp: offer.sdp, type: offer.type, role }) });
     const answer = await res.json();
-    await peerConnection.setRemoteDescription(new RTCSessionDescription(answer));
+    await pc.setRemoteDescription(new RTCSessionDescription(answer));
 }
 
 // ─── WebSocket ───
 function connectWebSocket() {
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
     websocket = new WebSocket(`${proto}//${location.host}/ws`);
-
-    websocket.onopen = () => {
-        connectionBadge.classList.add('connected');
-        connectionText.textContent = 'Connected';
-    };
-    websocket.onclose = () => {
-        connectionBadge.classList.remove('connected');
-        connectionText.textContent = 'Disconnected';
-        setTimeout(connectWebSocket, 2000);
-    };
-    websocket.onerror = () => {};
-    websocket.onmessage = (e) => {
-        try {
-            const data = JSON.parse(e.data);
-            handleMessage(data);
-        } catch {}
-    };
+    websocket.onopen = () => { connectionBadge.classList.add('connected'); connectionText.textContent = 'Connected'; };
+    websocket.onclose = () => { connectionBadge.classList.remove('connected'); connectionText.textContent = 'Disconnected'; setTimeout(connectWebSocket, 2000); };
+    websocket.onmessage = (e) => { try { handleMessage(JSON.parse(e.data)); } catch {} };
 }
 
 function handleMessage(data) {
-    if (data.type === 'pose_update') {
-        if (typeof data.total_reps === 'number') updateRepCount(data.total_reps);
+    if (data.type === 'coaching_tip') {
+        showCoachingTip(data.text, data.metrics);
+    } else if (data.type === 'pose_update') {
+        const role = data.camera_role || 'front';
+        if (typeof data.total_reps === 'number') { roleReps[role] = data.total_reps; updateMergedRepCount(); }
         if (data.rep_completed && voiceEnabled) {
+            const m = Math.max(roleReps.front, roleReps.side);
             const now = Date.now();
-            if (now - lastSpokenTime > 1500) { speak(`${data.total_reps}`); lastSpokenTime = now; }
+            if (now - lastSpokenTime > 1500) { speak(`${m}`); lastSpokenTime = now; }
         }
-    } else if (data.type === 'exercise_update') {
-        updateExerciseUI(data);
     } else if (data.type === 'rep_counted') {
-        updateRepCount(data.total_reps);
+        const role = data.camera_role || 'front';
+        if (typeof data.total_reps === 'number') roleReps[role] = data.total_reps;
+        updateMergedRepCount();
+    } else if (data.type === 'vlm_response') {
+        if (data.metrics) updateMetrics(data.metrics);
+    } else if (data.type === 'chat_response') {
+        showChatResponse(data.question, data.answer);
     } else if (data.type === 'session_started') {
         onSessionStarted(data);
     } else if (data.type === 'session_ended') {
         onSessionEnded(data);
-    } else if (data.type === 'session_summary') {
-        showSessionSummary(data);
-    } else if (data.type === 'vlm_response') {
-        if (data.metrics) updateMetrics(data.metrics);
-    } else if (data.type === 'exercise_selected') {
-        // confirmed
     } else if (data.type === 'server_config') {
         document.getElementById('apiBaseInput').value = data.api_base || '';
     }
 }
 
+function showCoachingTip(text, metrics) {
+    if (!text || text.startsWith('Error:') || text === 'Initializing...') return;
+
+    coachingText.textContent = text;
+    coachingText.classList.remove('fresh');
+    void coachingText.offsetWidth;
+    coachingText.classList.add('fresh');
+
+    if (metrics) updateMetrics(metrics);
+
+    const now = new Date();
+    const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    coachMessages.unshift({ text, time: timeStr });
+    if (coachMessages.length > 20) coachMessages.pop();
+    renderCoachHistory();
+
+    if (voiceEnabled && sessionActive) {
+        const nowMs = Date.now();
+        if (nowMs - lastSpokenTime > 5000) {
+            speak(text);
+            lastSpokenTime = nowMs;
+        }
+    }
+}
+
+function renderCoachHistory() {
+    coachHistory.innerHTML = coachMessages.map(m => {
+        const cls = m.role === 'user' ? 'coach-msg user-msg' : 'coach-msg';
+        const label = m.role === 'user' ? 'You' : 'Coach';
+        return `<div class="${cls}"><div class="msg-label">${label}</div>${escapeHtml(m.text)}<div class="timestamp">${m.time}</div></div>`;
+    }).join('');
+    coachHistory.scrollTop = 0;
+}
+
+function sendChatQuestion() {
+    const input = document.getElementById('chatInput');
+    const text = input.value.trim();
+    if (!text || !websocket || websocket.readyState !== WebSocket.OPEN) return;
+    input.value = '';
+
+    const now = new Date();
+    const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    coachMessages.unshift({ text, time: timeStr, role: 'user' });
+    renderCoachHistory();
+
+    websocket.send(JSON.stringify({ type: 'user_question', text }));
+}
+
+function showChatResponse(question, answer) {
+    const now = new Date();
+    const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    coachMessages.unshift({ text: answer, time: timeStr, role: 'coach' });
+    if (coachMessages.length > 30) coachMessages.pop();
+    renderCoachHistory();
+
+    coachingText.textContent = answer;
+    coachingText.classList.remove('fresh'); void coachingText.offsetWidth; coachingText.classList.add('fresh');
+
+    if (voiceEnabled) { speak(answer); lastSpokenTime = Date.now(); }
+}
+
+// ─── Speech Recognition ───
+let recognition = null;
+let micListening = false;
+
+function toggleMic() {
+    const micBtn = document.getElementById('chatMicBtn');
+    if (micListening) {
+        if (recognition) recognition.stop();
+        micListening = false;
+        micBtn.classList.remove('listening');
+        return;
+    }
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) { alert('Speech recognition not supported in this browser.'); return; }
+
+    recognition = new SpeechRecognition();
+    recognition.lang = 'en-US';
+    recognition.continuous = false;
+    recognition.interimResults = false;
+
+    recognition.onresult = (event) => {
+        const transcript = event.results[0][0].transcript;
+        document.getElementById('chatInput').value = transcript;
+        sendChatQuestion();
+    };
+    recognition.onend = () => { micListening = false; micBtn.classList.remove('listening'); };
+    recognition.onerror = () => { micListening = false; micBtn.classList.remove('listening'); };
+
+    recognition.start();
+    micListening = true;
+    micBtn.classList.add('listening');
+}
+
 function updateMetrics(m) {
     const lat = Math.round(m.last_latency_ms);
-    const avg = Math.round(m.avg_latency_ms);
-    latencyVal.textContent = lat + 'ms';
-    avgLatencyVal.textContent = avg + 'ms';
-    inferenceCount.textContent = m.total_inferences;
-    latencyBadge.style.display = 'flex';
-    latencyTextEl.textContent = lat + 'ms';
+    document.getElementById('latencyVal').textContent = lat + 'ms';
+    document.getElementById('latencyVal2').textContent = lat + 'ms';
+    document.getElementById('avgLatencyVal').textContent = Math.round(m.avg_latency_ms) + 'ms';
+    document.getElementById('inferenceCount').textContent = m.total_inferences;
+    document.getElementById('inferenceCount2').textContent = m.total_inferences;
 }
 
-// ─── Exercise UI Updates ───
-function updateExerciseUI(data) {
-    const score = data.form_score || 0;
-    const corrections = data.corrections || [];
-    const feedback = data.feedback || '';
-    const phase = data.phase || '';
-
-    if (data.metrics) updateMetrics(data.metrics);
-
-    // Phase badge
-    if (phase) {
-        phaseBadge.style.display = 'flex';
-        phaseText.textContent = phase.replace(/_/g, ' ');
-    }
-
-    // Form score
-    if (score > 0) {
-        formScoreValue.textContent = score;
-        const pct = (score / 10) * 100;
-        formBarFill.style.width = pct + '%';
-        formBarFill.style.background = score >= 7 ? 'var(--success)' : score >= 4 ? 'var(--warning)' : 'var(--danger)';
-
-        // Ring
-        formRing.style.display = 'block';
-        formScoreRing.textContent = score;
-        const circumference = 2 * Math.PI * 42;
-        const offset = circumference - (score / 10) * circumference;
-        formRingCircle.style.strokeDashoffset = offset;
-        formRingCircle.style.stroke = score >= 7 ? '#22c55e' : score >= 4 ? '#f59e0b' : '#ef4444';
-    }
-
-    // Corrections
-    if (corrections.length > 0) {
-        correctionsList.innerHTML = '';
-        corrections.forEach(c => {
-            const li = document.createElement('li');
-            li.className = 'correction-item';
-            li.innerHTML = `<i data-lucide="alert-triangle"></i><span>${escapeHtml(c)}</span>`;
-            correctionsList.appendChild(li);
-        });
-        lucide.createIcons({ nodes: [correctionsList] });
-
-        // Voice
-        const corrStr = corrections.join('. ');
-        const now = Date.now();
-        if (voiceEnabled && corrStr !== lastSpokenCorrection && now - lastSpokenTime > 4000) {
-            speak(corrStr);
-            lastSpokenCorrection = corrStr;
-            lastSpokenTime = now;
-        }
-    } else if (score >= 8) {
-        correctionsList.innerHTML = '<li class="correction-item good"><i data-lucide="check-circle"></i><span>Great form! Keep it up!</span></li>';
-        lucide.createIcons({ nodes: [correctionsList] });
-    }
-
-    // Feedback
-    if (feedback) {
-        feedbackBubble.textContent = feedback;
-    }
-
-    // Rep count from update
-    if (typeof data.total_reps === 'number') {
-        updateRepCount(data.total_reps);
-    }
-
-    if (data.rep_completed) {
-        const now = Date.now();
-        if (voiceEnabled && now - lastSpokenTime > 2000) {
-            speak(`Rep ${data.total_reps}`);
-            lastSpokenTime = now;
-        }
+function updateMergedRepCount() {
+    const m = Math.max(roleReps.front, roleReps.side);
+    if (parseInt(repCountEl.textContent) !== m) {
+        repCountEl.textContent = m;
+        repCountEl.classList.remove('pulse'); void repCountEl.offsetWidth; repCountEl.classList.add('pulse');
     }
 }
 
-function updateRepCount(count) {
-    const el = repCountEl;
-    if (parseInt(el.textContent) !== count) {
-        el.textContent = count;
-        el.classList.remove('pulse');
-        void el.offsetWidth;
-        el.classList.add('pulse');
-    }
-}
-
-// ─── Session Controls ───
+// ─── Session ───
 function startSession() {
-    if (!selectedExercise || !websocket) return;
-    websocket.send(JSON.stringify({ type: 'start_exercise_session', exercise_id: selectedExercise.id }));
+    if (!websocket) return;
+    const eid = guidedMode ? selectedExerciseId : 'general';
+    websocket.send(JSON.stringify({ type: 'start_exercise_session', exercise_id: eid }));
 }
 
 function onSessionStarted(data) {
-    sessionActive = true;
-    sessionPaused = false;
+    sessionActive = true; sessionPaused = false;
+    roleReps = { front: 0, side: 0 };
     repCountEl.textContent = '0';
-    formScoreValue.textContent = '-';
-    formBarFill.style.width = '0%';
-    correctionsList.innerHTML = '';
-    feedbackBubble.textContent = 'Session started! Begin your exercise.';
+    coachMessages = [];
+    coachHistory.innerHTML = '';
+    coachingText.textContent = 'Session started! Begin your exercise -- I\'m watching.';
 
-    startBtn.style.display = 'none';
-    pauseBtn.style.display = 'flex';
-    endBtn.style.display = 'flex';
-    exerciseSelect.disabled = true;
+    const showReps = guidedMode && data.exercise && data.exercise.primary_joint;
+    repSection.classList.toggle('visible', showReps);
 
+    startBtn.style.display = 'none'; pauseBtn.style.display = 'flex'; endBtn.style.display = 'flex';
     sessionStartTime = Date.now();
     sessionTimerEl.style.display = 'block';
     timerInterval = setInterval(updateTimer, 1000);
 
-    if (voiceEnabled) speak(`Starting ${selectedExercise.name}. Begin when ready.`);
+    if (voiceEnabled) {
+        const name = data.exercise ? data.exercise.name : 'General coaching';
+        speak(`${name} session started. Begin when ready.`);
+    }
 }
 
 function togglePause() {
@@ -878,12 +626,10 @@ function togglePause() {
     sessionPaused = !sessionPaused;
     if (sessionPaused) {
         websocket.send(JSON.stringify({ type: 'pause_session' }));
-        pauseBtn.innerHTML = '<i data-lucide="play"></i> Resume';
-        clearInterval(timerInterval);
+        pauseBtn.innerHTML = '<i data-lucide="play"></i> Resume'; clearInterval(timerInterval);
     } else {
         websocket.send(JSON.stringify({ type: 'resume_session' }));
-        pauseBtn.innerHTML = '<i data-lucide="pause"></i> Pause';
-        timerInterval = setInterval(updateTimer, 1000);
+        pauseBtn.innerHTML = '<i data-lucide="pause"></i> Pause'; timerInterval = setInterval(updateTimer, 1000);
     }
     lucide.createIcons({ nodes: [pauseBtn] });
 }
@@ -894,80 +640,49 @@ function endSession() {
 }
 
 function onSessionEnded(data) {
-    sessionActive = false;
-    sessionPaused = false;
-    clearInterval(timerInterval);
-
-    startBtn.style.display = 'flex';
-    pauseBtn.style.display = 'none';
-    endBtn.style.display = 'none';
-    exerciseSelect.disabled = false;
-    phaseBadge.style.display = 'none';
-    formRing.style.display = 'none';
-
+    sessionActive = false; sessionPaused = false; clearInterval(timerInterval);
+    startBtn.style.display = 'flex'; pauseBtn.style.display = 'none'; endBtn.style.display = 'none';
+    coachingText.textContent = 'Session ended. Great work!';
     if (data.summary) {
         const s = data.summary;
-        feedbackBubble.textContent = `Session complete! ${s.total_reps} reps, avg form score: ${s.avg_form_score}/10.`;
-        if (voiceEnabled) speak(`Session complete. ${s.total_reps} reps. Average form score: ${s.avg_form_score} out of 10.`);
+        const msg = s.total_reps > 0 ? `Session complete! ${s.total_reps} reps.` : 'Session complete!';
+        coachingText.textContent = msg;
+        if (voiceEnabled) speak(msg);
     }
-}
-
-function showSessionSummary(data) {
-    // Already handled by onSessionEnded
 }
 
 function updateTimer() {
     if (!sessionStartTime) return;
-    const elapsed = Math.floor((Date.now() - sessionStartTime) / 1000);
-    const m = String(Math.floor(elapsed / 60)).padStart(2, '0');
-    const s = String(elapsed % 60).padStart(2, '0');
-    sessionTimerEl.textContent = `${m}:${s}`;
+    const e = Math.floor((Date.now() - sessionStartTime) / 1000);
+    sessionTimerEl.textContent = `${String(Math.floor(e/60)).padStart(2,'0')}:${String(e%60).padStart(2,'0')}`;
 }
 
-// ─── TTS ───
 function speak(text) {
     if (!window.speechSynthesis || !voiceEnabled) return;
-    const utter = new SpeechSynthesisUtterance(text);
-    utter.rate = 1.1;
-    utter.pitch = 1.0;
-    window.speechSynthesis.speak(utter);
+    const u = new SpeechSynthesisUtterance(text); u.rate = 1.05; u.pitch = 1.0;
+    window.speechSynthesis.speak(u);
 }
 
-// ─── Settings Modal ───
 async function loadModels() {
-    const apiBase = document.getElementById('apiBaseInput').value;
+    const ab = document.getElementById('apiBaseInput').value;
     try {
-        const url = apiBase ? `/models?api_base=${encodeURIComponent(apiBase)}` : '/models';
-        const res = await fetch(url);
-        const data = await res.json();
-        const sel = document.getElementById('modelSelect');
-        sel.innerHTML = '';
-        (data.models || []).forEach(m => {
-            const opt = document.createElement('option');
-            opt.value = m.id;
-            opt.textContent = m.name;
-            if (m.current) opt.selected = true;
-            sel.appendChild(opt);
-        });
+        const r = await fetch(ab ? `/models?api_base=${encodeURIComponent(ab)}` : '/models');
+        const d = await r.json();
+        const s = document.getElementById('modelSelect'); s.innerHTML = '';
+        (d.models || []).forEach(m => { const o = document.createElement('option'); o.value = m.id; o.textContent = m.name; if (m.current) o.selected = true; s.appendChild(o); });
     } catch {}
 }
 
 function saveSettings() {
-    const apiBase = document.getElementById('apiBaseInput').value.trim();
-    const apiKey = document.getElementById('apiKeyInput').value.trim();
-    const model = document.getElementById('modelSelect').value;
-    if (websocket && websocket.readyState === WebSocket.OPEN) {
-        websocket.send(JSON.stringify({ type: 'update_model', model, api_base: apiBase, api_key: apiKey }));
-    }
-    settingsModal.classList.remove('show');
+    const ab = document.getElementById('apiBaseInput').value.trim();
+    const ak = document.getElementById('apiKeyInput').value.trim();
+    const m = document.getElementById('modelSelect').value;
+    if (websocket && websocket.readyState === WebSocket.OPEN)
+        websocket.send(JSON.stringify({ type: 'update_model', model: m, api_base: ab, api_key: ak }));
+    document.getElementById('settingsModal').classList.remove('show');
 }
 
-// ─── Utils ───
-function escapeHtml(str) {
-    const d = document.createElement('div');
-    d.textContent = str;
-    return d.innerHTML;
-}
+function escapeHtml(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
 </script>
 </body>
 </html>

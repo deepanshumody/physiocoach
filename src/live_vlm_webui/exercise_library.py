@@ -51,6 +51,18 @@ class Exercise:
 
 EXERCISES: list[Exercise] = [
     Exercise(
+        id="general",
+        name="General Coach (Auto-Detect)",
+        category="general",
+        description="The AI coach will automatically detect what exercise you are performing and provide posture tips and encouragement.",
+        correct_form="Maintain good posture, controlled movements, and full range of motion.",
+        common_mistakes=["Poor posture", "Rushing through movements", "Limited range of motion"],
+        phases=["active"],
+        rep_start_phase="active",
+        rep_end_phase="active",
+        primary_joint=None,
+    ),
+    Exercise(
         id="squat",
         name="Bodyweight Squat",
         category="lower",
