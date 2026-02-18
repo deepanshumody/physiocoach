@@ -673,16 +673,15 @@ async def offer(request):
     async def on_connectionstatechange():
         logger.info(f"Camera {slot} connection state: {pc.connectionState}")
         if pc.connectionState in ["failed", "closed"]:
-            # Clean up RTSP track if exists
             if rtsp_cleanup_track:
                 rtsp_cleanup_track.stop()
-                logger.info(f"Camera {slot} RTSP track stopped on connection close")
             await pc.close()
             pcs.discard(pc)
-            # Free up the camera slot
             if camera_slots.get(slot) is pc:
                 del camera_slots[slot]
                 camera_tracks.pop(slot, None)
+                camera_websockets.pop(slot, None)
+                pending_renegotiation_tracks.pop(slot, None)
                 logger.info(f"Camera slot {slot} freed")
                 _broadcast_json({"type": "camera_disconnected", "camera_id": slot, "occupied": list(camera_slots.keys())})
 

@@ -743,20 +743,23 @@ async function setupWebRTC() {
     });
     localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
 
-    let ownStream = null;
+    let ownTrackId = null;
     peerConnection.ontrack = (event) => {
         if (!event.streams || !event.streams[0]) return;
+        const track = event.track;
         const stream = event.streams[0];
-        if (!ownStream) {
-            // First track ever = own camera feed
-            ownStream = stream;
+        if (!ownTrackId) {
+            // First track = own camera feed
+            ownTrackId = track.id;
             videoEl.srcObject = stream;
-        } else if (stream !== ownStream) {
-            // Different stream = other camera's feed
+        } else if (track.id !== ownTrackId) {
+            // Different track = other camera's feed
             const v2 = document.getElementById('videoElement2');
-            v2.srcObject = stream;
-            v2.play().catch(() => {});
-            showCam2(true);
+            if (!v2.srcObject || v2.srcObject !== stream) {
+                v2.srcObject = stream;
+                v2.play().catch(() => {});
+                showCam2(true);
+            }
         }
     };
 
