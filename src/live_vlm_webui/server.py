@@ -43,6 +43,7 @@ from .gpu_monitor import create_monitor
 from .rtsp_track import RTSPVideoTrack
 from .exercise_library import get_exercise, get_all_exercises, EXERCISE_MAP
 from .session_manager import SessionManager
+from .vlm_service import parse_json_response
 
 # Configure logging
 logging.basicConfig(
@@ -373,9 +374,13 @@ async def websocket_handler(request):
 
                     elif data.get("type") == "select_exercise":
                         exercise_id = data.get("exercise_id", "")
+                        ex = get_exercise(exercise_id)
+                        if not ex:
+                            # Keep server state sane when an unknown id is sent.
+                            exercise_id = "general"
+                            ex = get_exercise("general")
                         global active_exercise_id
                         active_exercise_id = exercise_id
-                        ex = get_exercise(exercise_id)
                         if ex:
                             await ws.send_json({"type": "exercise_selected", "exercise": ex.to_dict()})
                             logger.info(f"Exercise selected: {ex.name}")
@@ -383,13 +388,26 @@ async def websocket_handler(request):
                             await ws.send_json({"type": "exercise_selected", "exercise": {"id": "general", "name": "General Coach"}})
 
                     elif data.get("type") == "start_exercise_session":
+                        global _last_coaching_text, _last_vlm_response
+                        _last_coaching_text = ""
+                        _last_vlm_response = ""
                         exercise_id = data.get("exercise_id") or active_exercise_id or "general"
-                        active_exercise_id = exercise_id
                         ex = get_exercise(exercise_id)
+                        if not ex:
+                            logger.warning(f"Unknown exercise_id '{exercise_id}', falling back to general")
+                            exercise_id = "general"
+                            ex = get_exercise("general")
+                        active_exercise_id = exercise_id
 
-                        # Set conversational coaching prompt on VLM
-                        vlm_service.set_coaching_prompt(DEFAULT_COACHING_PROMPT)
+                        if exercise_id == "general":
+                            vlm_service.set_coaching_prompt(DEFAULT_COACHING_PROMPT)
+                        else:
+                            vlm_service.set_coaching_prompt(ex.build_vlm_prompt(), max_tokens=200)
                         VideoProcessorTrack._coaching_active = True
+                        # Reset prior pose-tracking config so sessions don't leak rep state.
+                        for pt in active_processor_tracks:
+                            if pt.pose_detector.available:
+                                pt.pose_detector.clear_exercise()
 
                         # Configure MediaPipe rep counting if a specific exercise is selected
                         if ex and ex.primary_joint:
@@ -414,8 +432,8 @@ async def websocket_handler(request):
                         await ws.send_json({"type": "session_resumed"})
 
                     elif data.get("type") == "end_exercise_session":
-                        global _last_coaching_text
                         _last_coaching_text = ""
+                        _last_vlm_response = ""
                         VideoProcessorTrack._coaching_active = False
                         vlm_service.clear_coaching()
                         pose_reps = 0
@@ -490,18 +508,56 @@ async def websocket_handler(request):
 
 
 _last_coaching_text = ""
+_last_vlm_response = ""
 
 def broadcast_text_update(text: str, metrics: dict):
     """Broadcast text update and metrics to all connected WebSocket clients"""
-    global _last_coaching_text
+    global _last_coaching_text, _last_vlm_response
     if not websockets:
         return
+
+    if text == _last_vlm_response:
+        return
+    _last_vlm_response = text
 
     _broadcast_json({"type": "vlm_response", "text": text, "metrics": metrics})
 
     if vlm_service and vlm_service.coaching_active and text and text != _last_coaching_text and not text.startswith("Error:") and text != "Initializing...":
         _last_coaching_text = text
-        _broadcast_json({"type": "coaching_tip", "text": text, "metrics": metrics})
+
+        display_text = text
+        if active_exercise_id:
+            if active_exercise_id != "general":
+                parsed = parse_json_response(text)
+                if parsed:
+                    if parsed.get("exercise_detected", True):
+                        display_text = parsed.get("feedback") or text
+                        if session_manager and session_manager.active:
+                            asyncio.create_task(_record_frame_safe(parsed))
+                    else:
+                        display_text = parsed.get("feedback") or "I can't see the exercise clearly. Please adjust your position."
+            else:
+                # General exercise (non-JSON): record text feedback
+                if session_manager and session_manager.active:
+                    # Construct a minimal record for general coaching
+                    record = {
+                        "phase": "active",
+                        "form_score": 0,
+                        "corrections": [],
+                        "feedback": text,
+                        "rep_boundary": False,
+                    }
+                    asyncio.create_task(_record_frame_safe(record))
+
+        _broadcast_json({"type": "coaching_tip", "text": display_text, "metrics": metrics})
+
+
+async def _record_frame_safe(parsed: dict):
+    """Record a VLM analysis frame in the session manager, logging errors."""
+    try:
+        await session_manager.record_frame(parsed)
+    except Exception as e:
+        logger.error(f"Error recording frame data: {e}")
 
 
 def broadcast_gpu_stats(stats: dict):
