@@ -927,38 +927,47 @@ function updateROMDisplay(romAngles) {
     overlay.style.display = 'block';
     sidebarSection.style.display = 'block';
 
-    // Video overlay cards
+    // Video overlay cards — show current angle + how much more needed
     cards.innerHTML = '';
     romAngles.forEach(r => {
+        const remaining = r.remaining || 0;
+        const remainingText = remaining > 0
+            ? `${Math.round(remaining)}\u00B0 more to go`
+            : 'Target reached!';
         const card = document.createElement('div');
         card.className = 'rom-angle-card';
         card.style.borderLeftColor = r.color;
         card.innerHTML = `
             <span class="rom-angle-val" style="color:${r.color}">${Math.round(r.angle)}\u00B0</span>
             <div class="rom-angle-meta">
-                <span class="rom-angle-joint">${r.joint} ${r.movement.replace(/_/g, ' ')}</span>
-                <span class="rom-angle-target">Target: ${r.target}\u00B0 \u2022 ${r.percent}%</span>
+                <span class="rom-angle-joint">${(r.label || r.joint + ' ' + r.movement).replace(/_/g, ' ')}</span>
+                <span class="rom-angle-target">${remainingText} \u2022 Target: ${r.target}\u00B0</span>
                 <span class="rom-angle-status" style="background:${r.color}22;color:${r.color}">${r.status}</span>
             </div>
         `;
         cards.appendChild(card);
     });
 
-    // Sidebar items
+    // Sidebar items — detailed view with guidance
     sidebarContent.innerHTML = '';
     romAngles.forEach(r => {
+        const remaining = r.remaining || 0;
         const item = document.createElement('div');
         item.className = 'rom-sidebar-item';
         item.style.borderLeftColor = r.color;
         item.innerHTML = `
-            <div>
-                <div class="rom-sb-label">${r.joint} ${r.movement.replace(/_/g, ' ')}</div>
-                <div class="rom-sb-pct">${r.percent}% of target (${r.target}\u00B0)</div>
+            <div style="flex:1;min-width:0;">
+                <div class="rom-sb-label">${(r.label || r.joint + ' ' + r.movement).replace(/_/g, ' ')}</div>
+                <div class="rom-sb-pct">${r.guidance || (remaining > 0 ? Math.round(remaining) + '\u00B0 more to reach ' + r.target + '\u00B0' : 'Target reached!')}</div>
+                <div style="margin-top:4px;height:4px;border-radius:2px;background:rgba(0,0,0,0.1);overflow:hidden;">
+                    <div style="height:100%;width:${Math.min(r.percent,100)}%;background:${r.color};border-radius:2px;transition:width 0.5s;"></div>
+                </div>
             </div>
             <span class="rom-sb-angle" style="color:${r.color}">${Math.round(r.angle)}\u00B0</span>
         `;
         sidebarContent.appendChild(item);
     });
+}
 
 function updateRepCount(count) {
     const el = repCountEl;

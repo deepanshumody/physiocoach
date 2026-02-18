@@ -49,9 +49,12 @@ class Exercise:
             for rt in self.rom_targets
         )
         return (
-            f"\nROM MEASUREMENT — also estimate these joint angles in degrees:\n"
+            f"\nROM MEASUREMENT — ALWAYS estimate the current joint angle in degrees, even if the form is wrong or incomplete:\n"
             f"  {targets_str}\n"
+            f"IMPORTANT: Report the patient's ACTUAL current angle, not the ideal angle. "
+            f"If a patient's knee is only bent to 40°, report 40, not the target.\n"
             f"Include in your JSON: {rom_fields}\n"
+            f"Also include angle coaching in your feedback, e.g. 'Your knee is at 40° — try to reach 90°. You need 50° more.'\n"
         )
 
     def build_vlm_prompt(self) -> str:

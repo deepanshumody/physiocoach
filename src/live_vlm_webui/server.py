@@ -513,24 +513,36 @@ def _extract_rom_angles(parsed: dict) -> list[dict]:
                 angle = float(val)
             except (ValueError, TypeError):
                 continue
-            pct = (angle / rt.target_angle * 100) if rt.target_angle > 0 else 0
+            target = rt.target_angle
+            pct = (angle / target * 100) if target > 0 else 0
+            remaining = max(0, target - angle)
+
             if pct >= 90:
                 status, color = "Excellent", "#22c55e"
+                guidance = "Great range of motion!"
             elif pct >= 70:
                 status, color = "Good", "#8BC34A"
+                guidance = f"{remaining:.0f}° more to reach full target"
             elif pct >= 50:
-                status, color = "Limited", "#f59e0b"
+                status, color = "Needs Work", "#f59e0b"
+                guidance = f"Try to go {remaining:.0f}° further — you're halfway there"
             else:
-                status, color = "Restricted", "#ef4444"
+                status, color = "Keep Going", "#ef4444"
+                guidance = f"You need {remaining:.0f}° more — take it slow, keep pushing"
+
+            joint_label = f"{rt.joint} {rt.movement}".replace("_", " ")
             angles.append({
                 "joint": rt.joint,
                 "movement": rt.movement,
                 "side": rt.side,
                 "angle": round(angle, 1),
-                "target": rt.target_angle,
+                "target": target,
+                "remaining": round(remaining, 1),
                 "percent": round(pct, 1),
                 "status": status,
                 "color": color,
+                "guidance": guidance,
+                "label": joint_label,
             })
     return angles
 
