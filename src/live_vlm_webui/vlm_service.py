@@ -113,7 +113,19 @@ class VLMService:
             img_base64 = base64.b64encode(img_byte_arr).decode("utf-8")
 
             # Create message with image
-            messages = [
+            system_msg = None
+            if self._coaching_active:
+                system_msg = (
+                    "You are a PT coach giving real-time feedback. "
+                    "STRICT RULES: Respond in exactly 1-2 short sentences. "
+                    "No bullet points. No markdown. No disclaimers. No explanations. "
+                    "No 'Please note' or 'As an AI'. Just the coaching cue, nothing else."
+                )
+
+            messages = []
+            if system_msg:
+                messages.append({"role": "system", "content": system_msg})
+            messages.append(
                 {
                     "role": "user",
                     "content": [
@@ -124,7 +136,7 @@ class VLMService:
                         },
                     ],
                 }
-            ]
+            )
 
             # Call API
             response = await self.client.chat.completions.create(
@@ -225,19 +237,13 @@ class VLMService:
             self.is_processing = True
             try:
                 if prompt:
-                    # Per-track prompt (front/side camera specific)
                     effective_prompt = prompt
                 elif self._coaching_active and self._coaching_prompt:
                     effective_prompt = self._coaching_prompt
                 else:
                     effective_prompt = None
 
-                # Use more tokens for coaching to get complete sentences
-                saved_tokens = self.max_tokens
-                if self._coaching_active:
-                    self.max_tokens = 120
                 response = await self.analyze_image(image, effective_prompt)
-                self.max_tokens = saved_tokens
                 self.current_response = response
             finally:
                 self.is_processing = False
