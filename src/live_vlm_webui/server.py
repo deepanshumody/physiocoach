@@ -64,8 +64,9 @@ active_exercise_id: str = None  # Currently selected exercise
 active_processor_tracks: set = set()  # Track active VideoProcessorTrack instances for pose config
 
 DEFAULT_COACHING_PROMPT = (
-    "You are an expert physical therapy coach analyzing a live exercise video frame.\n\n"
-    "Look at the person's body position and movement carefully.\n\n"
+    "You are an expert physical therapy coach analyzing a sequence of consecutive video frames "
+    "shown side by side (left to right = earlier to later in time).\n\n"
+    "Look at the person's body position and movement across the frames carefully.\n\n"
     "If you can see a person doing ANY physical movement or exercise position (squats, lunges, "
     "pushups, standing with arms raised, bending, stretching — anything), give ONE specific "
     "correction or encouragement about their form. Name the exercise briefly.\n\n"
@@ -75,17 +76,19 @@ DEFAULT_COACHING_PROMPT = (
 )
 
 FRONT_CAMERA_PROMPT = (
-    "You are an expert PT coach watching the FRONT view of someone exercising.\n\n"
+    "You are an expert PT coach watching a sequence of consecutive FRONT view frames of someone exercising "
+    "(frames shown side by side, left to right = earlier to later).\n\n"
     "Give ONE correction about symmetry, alignment, knee tracking, hip level, or shoulder position "
-    "based on what you can see. If you cannot see a person at all, say: "
+    "based on the movement you see across frames. If you cannot see a person at all, say: "
     "'Step in front of the camera to begin.'\n\n"
     "Max 2 short sentences. No lists. No markdown. Be specific."
 )
 
 SIDE_CAMERA_PROMPT = (
-    "You are an expert PT coach watching the SIDE view of someone exercising.\n\n"
+    "You are an expert PT coach watching a sequence of consecutive SIDE view frames of someone exercising "
+    "(frames shown side by side, left to right = earlier to later).\n\n"
     "Give ONE correction about spine angle, knee bend depth, forward lean, hip hinge, or posture "
-    "based on what you can see from the side. If you cannot see a person at all, say: "
+    "based on the movement you see across frames. If you cannot see a person at all, say: "
     "'Position yourself sideways to the camera.'\n\n"
     "Max 2 short sentences. No lists. No markdown. Be specific about the angle or depth you observe."
 )
