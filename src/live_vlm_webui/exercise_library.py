@@ -165,8 +165,8 @@ EXERCISES: list[Exercise] = [
         rep_start_phase="standing",
         rep_end_phase="returning",
         rom_targets=[
-            ROMTarget(joint="knee", movement="flexion", side="both", target_angle=90),
-            ROMTarget(joint="hip", movement="flexion", side="both", target_angle=90),
+            ROMTarget(joint="knee", movement="flexion", side="both", target_angle=90, min_angle=170),
+            ROMTarget(joint="hip", movement="flexion", side="both", target_angle=90, min_angle=170),
         ],
         primary_joint=("left_hip", "left_knee", "left_ankle"),
         rep_down_threshold=100,
@@ -190,7 +190,7 @@ EXERCISES: list[Exercise] = [
         rep_start_phase="extended",
         rep_end_phase="pushing_back",
         rom_targets=[
-            ROMTarget(joint="elbow", movement="flexion", side="both", target_angle=90),
+            ROMTarget(joint="elbow", movement="flexion", side="both", target_angle=90, min_angle=170),
         ],
         primary_joint=("left_shoulder", "left_elbow", "left_wrist"),
         rep_down_threshold=100,
@@ -238,9 +238,9 @@ EXERCISES: list[Exercise] = [
         rep_start_phase="flat",
         rep_end_phase="lowering",
         rom_targets=[
-            ROMTarget(joint="ankle", movement="plantarflexion", side="both", target_angle=50),
+            ROMTarget(joint="ankle", movement="plantarflexion", side="both", target_angle=130, min_angle=95),
         ],
-        primary_joint=("left_hip", "left_knee", "left_ankle"),
+        primary_joint=("left_knee", "left_ankle", "left_foot_index"),
         rep_down_threshold=160,
         rep_up_threshold=172,
     ),
@@ -262,7 +262,7 @@ EXERCISES: list[Exercise] = [
         rep_start_phase="knee_bent",
         rep_end_phase="lowering",
         rom_targets=[
-            ROMTarget(joint="knee", movement="extension", side="right", target_angle=0, min_angle=90),
+            ROMTarget(joint="knee", movement="extension", side="right", target_angle=170, min_angle=90),
         ],
         primary_joint=("left_hip", "left_knee", "left_ankle"),
         rep_down_threshold=100,
@@ -285,7 +285,7 @@ EXERCISES: list[Exercise] = [
         rep_start_phase="legs_together",
         rep_end_phase="lowering",
         rom_targets=[
-            ROMTarget(joint="hip", movement="abduction", side="right", target_angle=45),
+            ROMTarget(joint="hip", movement="abduction", side="right", target_angle=135, min_angle=170),
         ],
         primary_joint=("left_shoulder", "left_hip", "left_ankle"),
         rep_down_threshold=155,
@@ -376,7 +376,7 @@ EXERCISES: list[Exercise] = [
         rep_start_phase="arms_low",
         rep_end_phase="sliding_down",
         rom_targets=[
-            ROMTarget(joint="shoulder", movement="flexion", side="both", target_angle=150),
+            ROMTarget(joint="shoulder", movement="flexion", side="both", target_angle=150, min_angle=15),
         ],
         primary_joint=("left_hip", "left_shoulder", "left_wrist"),
         rep_down_threshold=45,
@@ -400,10 +400,10 @@ EXERCISES: list[Exercise] = [
         rep_start_phase="rack_position",
         rep_end_phase="lowering",
         rom_targets=[
-            ROMTarget(joint="shoulder", movement="flexion", side="both", target_angle=170),
-            ROMTarget(joint="elbow", movement="extension", side="both", target_angle=170),
+            ROMTarget(joint="shoulder", movement="flexion", side="both", target_angle=170, min_angle=15),
+            ROMTarget(joint="elbow", movement="extension", side="both", target_angle=170, min_angle=40),
         ],
-        primary_joint=("left_shoulder", "left_elbow", "left_wrist"),
+        primary_joint=("left_hip", "left_shoulder", "left_wrist"),
         rep_down_threshold=90,
         rep_up_threshold=160,
     ),
@@ -424,8 +424,11 @@ EXERCISES: list[Exercise] = [
         rep_start_phase="center",
         rep_end_phase="returning_center_2",
         rom_targets=[
-            ROMTarget(joint="neck", movement="rotation", side="both", target_angle=80),
+            ROMTarget(joint="neck", movement="rotation", side="both", target_angle=100, min_angle=175),
         ],
+        primary_joint=("left_shoulder", "nose", "right_shoulder"),
+        rep_down_threshold=110,
+        rep_up_threshold=165,
     ),
 ]
 
