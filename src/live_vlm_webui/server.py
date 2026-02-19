@@ -551,13 +551,17 @@ async def websocket_handler(request):
 
                         # Configure MediaPipe rep counting only for specific exercises
                         if ex and ex.primary_joint:
+                            VideoProcessorTrack._guided_exercise = True
+                            VideoProcessorTrack._rom_targets = ex.rom_targets if ex.rom_targets else []
                             for pt in active_processor_tracks:
                                 if pt.pose_detector.available:
                                     pt.pose_detector.configure_exercise(
                                         ex.primary_joint, ex.rep_down_threshold, ex.rep_up_threshold
                                     )
-                            logger.info(f"Pose rep counting configured: joint={ex.primary_joint}")
+                            logger.info(f"Pose rep counting configured: joint={ex.primary_joint}, ROM targets={len(ex.rom_targets)}")
                         else:
+                            VideoProcessorTrack._guided_exercise = False
+                            VideoProcessorTrack._rom_targets = []
                             logger.info("General mode: rep counting disabled")
 
                         sid = await session_manager.start_session(exercise_id)
@@ -583,10 +587,16 @@ async def websocket_handler(request):
                             _feedback_combiner_task.cancel()
                         _feedback_combiner_task = None
                         VideoProcessorTrack._coaching_active = False
+                        VideoProcessorTrack._guided_exercise = False
+                        VideoProcessorTrack._rom_targets = []
                         vlm_service.clear_coaching()
                         pose_reps = 0
                         for pt in active_processor_tracks:
                             pt.fair_dual_camera_vlm = False
+                            pt._last_landmarks = None
+                            pt._last_tracked_joint = None
+                            pt._last_angle = None
+                            pt._last_joint_keys = None
                             if pt.pose_detector.available:
                                 pose_reps = max(pose_reps, pt.pose_detector.reps)
                                 pt.pose_detector.clear_exercise()
@@ -864,6 +874,7 @@ def _on_pose_frame(pose_result: dict):
     total_reps = pose_result.get("total_reps", 0)
     angle = pose_result.get("angle")
     role = pose_result.get("camera_role", "front")
+    rom = pose_result.get("rom", [])
 
     _broadcast_json({
         "type": "pose_update",
@@ -875,6 +886,9 @@ def _on_pose_frame(pose_result: dict):
 
     if rep_completed:
         _broadcast_json({"type": "rep_counted", "camera_role": role, "total_reps": total_reps})
+    
+    if rom:
+        _broadcast_json({"type": "rom_update", "rom": rom})
 
 
 async def gpu_monitor_loop():

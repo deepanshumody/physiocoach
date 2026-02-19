@@ -29,7 +29,7 @@ import time
 import av
 
 from .vlm_service import VLMService
-from .pose_detector import PoseDetector
+from .pose_detector import PoseDetector, draw_skeleton, compute_rom_angle, get_tracked_joint_for_display
 
 # Enable swscaler warnings to track hardware acceleration status
 # TODO: Implement hardware-accelerated color space conversion on Jetson using NVMM/VPI
@@ -52,10 +52,14 @@ class VideoProcessorTrack(VideoStreamTrack):
     max_frame_latency = 0.0
     # Whether we are in active coaching mode
     _coaching_active = False
+    # Guided exercise mode (skeleton + ROM display)
+    _guided_exercise = False
     # How often to run pose detection (every Nth frame, cheap ~10ms)
     pose_every_n_frames = 3
     # Round-robin turn for dual-camera VLM fairness.
     _next_vlm_camera_id = 1
+    # ROM targets for current exercise
+    _rom_targets = []
 
     def __init__(self, track: VideoStreamTrack, vlm_service: VLMService,
                  text_callback=None, pose_callback=None, camera_role: str = "front"):
@@ -77,6 +81,10 @@ class VideoProcessorTrack(VideoStreamTrack):
         self.first_frame_pts = None  # Track first frame PTS to calculate relative time
         self.first_frame_time = None  # Wall clock time of first frame
         self.frame_time_base = None  # Time base for PTS conversion (e.g., 1/90000)
+        self._last_landmarks = None
+        self._last_tracked_joint = None
+        self._last_angle = None
+        self._last_joint_keys = None
 
     async def recv(self):
         """
@@ -154,13 +162,15 @@ class VideoProcessorTrack(VideoStreamTrack):
 
             cls = self.__class__
             coaching = cls._coaching_active
+            guided = cls._guided_exercise
             vlm_interval = cls.coaching_frame_interval if coaching else cls.process_every_n_frames
 
             # Determine what work to do this frame
             need_vlm = (self.frame_count % vlm_interval == 0)
             need_pose = coaching and self.pose_detector.available and (self.frame_count % cls.pose_every_n_frames == 0)
-            need_conversion = need_vlm or need_pose or (self.frame_count == 1)
+            need_conversion = need_vlm or need_pose or guided or (self.frame_count == 1)
 
+            img = None
             if need_conversion:
                 t1 = time.time()
                 img = frame.to_ndarray(format="bgr24")
@@ -173,33 +183,54 @@ class VideoProcessorTrack(VideoStreamTrack):
                 if self.frame_count == 1:
                     logger.info(f"First frame received: {img.shape}")
 
-                # Pose detection (runs ~5-15ms on CPU)
-                if need_pose:
-                    pose_result = self.pose_detector.process_frame(img)
-                    if self.pose_callback and pose_result.get("pose_detected"):
+            # Pose detection (runs ~5-15ms on CPU)
+            if need_pose and img is not None:
+                pose_result = self.pose_detector.process_frame(img)
+                if pose_result.get("pose_detected"):
+                    self._last_landmarks = pose_result.get("landmarks")
+                    self._last_tracked_joint = pose_result.get("tracked_joint")
+                    self._last_angle = pose_result.get("angle")
+                    self._last_joint_keys = pose_result.get("joint_keys")
+                    
+                    if self.pose_callback:
                         pose_result["camera_role"] = self.camera_role
+                        # Compute ROM for all targets
+                        if self._last_landmarks and cls._rom_targets:
+                            rom_list = []
+                            for rt in cls._rom_targets:
+                                angle = compute_rom_angle(self._last_landmarks, rt.joint, rt.movement, rt.side)
+                                if angle is not None:
+                                    rom_list.append({
+                                        "joint": rt.joint,
+                                        "movement": rt.movement,
+                                        "side": rt.side,
+                                        "angle": round(angle, 1),
+                                        "target": rt.target_angle,
+                                        "label": f"{rt.joint}_{rt.movement}",
+                                    })
+                            pose_result["rom"] = rom_list
                         self.pose_callback(pose_result)
 
-                # VLM analysis (async, non-blocking, slow but smart)
-                if need_vlm:
-                    # In dual-camera mode with a shared VLM worker, alternate turns
-                    # so both camera feeds are analyzed fairly.
-                    if self.fair_dual_camera_vlm:
-                        if self.camera_id != cls._next_vlm_camera_id or self.vlm_service.is_processing:
-                            need_vlm = False
-                        else:
-                            cls._next_vlm_camera_id = 2 if self.camera_id == 1 else 1
+            # VLM analysis (async, non-blocking, slow but smart)
+            if need_vlm:
+                # In dual-camera mode with a shared VLM worker, alternate turns
+                # so both camera feeds are analyzed fairly.
+                if self.fair_dual_camera_vlm:
+                    if self.camera_id != cls._next_vlm_camera_id or self.vlm_service.is_processing:
+                        need_vlm = False
+                    else:
+                        cls._next_vlm_camera_id = 2 if self.camera_id == 1 else 1
 
-                if need_vlm:
-                    pil_img = Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
-                    prompt = self.coaching_prompt if (self._coaching_active and self.coaching_prompt) else None
-                    asyncio.create_task(
-                        self.vlm_service.process_frame(
-                            pil_img, prompt=prompt, source_camera_id=self.camera_id
-                        )
+            if need_vlm and img is not None:
+                pil_img = Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
+                prompt = self.coaching_prompt if (self._coaching_active and self.coaching_prompt) else None
+                asyncio.create_task(
+                    self.vlm_service.process_frame(
+                        pil_img, prompt=prompt, source_camera_id=self.camera_id
                     )
-                    if self.frame_count % 150 == 0:
-                        logger.info(f"Frame {self.frame_count}: Sending to VLM (interval={vlm_interval})")
+                )
+                if self.frame_count % 150 == 0:
+                    logger.info(f"Frame {self.frame_count}: Sending to VLM (interval={vlm_interval})")
 
             # Get current response (may be old if VLM is still processing)
             response, is_processing, source_camera_id = self.vlm_service.get_current_response()
@@ -212,8 +243,31 @@ class VideoProcessorTrack(VideoStreamTrack):
                 if source_camera_id is None or source_camera_id == self.camera_id:
                     self.text_callback(response, metrics)
 
+            # Draw skeleton on guided exercises
+            if guided and img is not None and self._last_landmarks:
+                rom_list = []
+                if cls._rom_targets and self._last_landmarks:
+                    for rt in cls._rom_targets:
+                        angle = compute_rom_angle(self._last_landmarks, rt.joint, rt.movement, rt.side)
+                        if angle is not None:
+                            rom_list.append({
+                                "angle": round(angle, 1),
+                                "label": f"{rt.joint}_{rt.movement}",
+                            })
+                
+                img = draw_skeleton(
+                    img, self._last_landmarks,
+                    tracked_joint=self._last_tracked_joint,
+                    angle=self._last_angle,
+                    joint_keys=self._last_joint_keys,
+                    rom_angles=rom_list,
+                )
+                new_frame = av.VideoFrame.from_ndarray(img, format="bgr24")
+                new_frame.pts = frame.pts
+                new_frame.time_base = frame.time_base
+                return new_frame
+
             # Return original frame directly - zero-copy passthrough!
-            # This avoids expensive BGR→YUV conversion
             return frame
 
         except Exception as e:
