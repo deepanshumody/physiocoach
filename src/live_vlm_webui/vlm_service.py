@@ -113,18 +113,9 @@ class VLMService:
             img_base64 = base64.b64encode(img_byte_arr).decode("utf-8")
 
             # Create message with image
-            system_msg = None
-            if self._coaching_active:
-                system_msg = (
-                    "You are a PT coach giving real-time feedback. "
-                    "STRICT RULES: Respond in exactly 1-2 short sentences. "
-                    "No bullet points. No markdown. No disclaimers. No explanations. "
-                    "No 'Please note' or 'As an AI'. Just the coaching cue, nothing else."
-                )
-
+            # Note: No system message for Qwen - it follows instructions in the user prompt
+            # well enough, and a conflicting system message causes it to over-use the fallback phrase.
             messages = []
-            if system_msg:
-                messages.append({"role": "system", "content": system_msg})
             messages.append(
                 {
                     "role": "user",
