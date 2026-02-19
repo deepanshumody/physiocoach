@@ -215,32 +215,15 @@ def draw_skeleton(frame: np.ndarray, landmarks: dict, tracked_joint=None,
                 start, end = end, start + 360
             cv2.ellipse(overlay, bi, (arc_r, arc_r), 0, start, end, (0, 255, 0), 3, cv2.LINE_AA)
         
-        # Angle label
-        label = f"{int(angle)}\u00b0"
+        # Angle label - show actual angle value
+        label = f"{int(round(angle))}\u00b0"
         tx, ty = bi[0] + 14, bi[1] - 14
         cv2.putText(overlay, label, (tx + 1, ty + 1), cv2.FONT_HERSHEY_SIMPLEX, 0.8,
                     (0, 0, 0), 5, cv2.LINE_AA)
         cv2.putText(overlay, label, (tx, ty), cv2.FONT_HERSHEY_SIMPLEX, 0.8,
                     (0, 255, 0), 3, cv2.LINE_AA)
     
-    # ROM angles overlay (top-right corner)
-    if rom_angles:
-        parts = []
-        for r in rom_angles:
-            label_text = r.get("label", "").replace("_", " ").title()
-            ang = r.get("angle")
-            if ang is not None and label_text:
-                parts.append(f"{label_text}: {int(ang)}\u00b0")
-        
-        if parts:
-            txt = "  |  ".join(parts)
-            (tw, th), _ = cv2.getTextSize(txt, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 2)
-            w = overlay.shape[1]
-            rx = max(10, w - tw - 20)
-            ry = 54
-            cv2.rectangle(overlay, (rx - 8, ry - th - 6), (min(w - 8, rx + tw + 8), ry + 8), (0, 0, 0), -1)
-            cv2.rectangle(overlay, (rx - 8, ry - th - 6), (min(w - 8, rx + tw + 8), ry + 8), (0, 255, 0), 2, cv2.LINE_AA)
-            cv2.putText(overlay, txt, (rx, ry), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2, cv2.LINE_AA)
+    # ROM angles removed - only show angle at tracked joint
     
     cv2.addWeighted(overlay, 0.85, frame, 0.15, 0, frame)
     return frame
