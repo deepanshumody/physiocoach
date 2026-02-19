@@ -166,25 +166,8 @@ The prompt went through three iterations — the final version removes all fallb
 
 ---
 
-## Branch Guide
-
-| Branch | Status | Description |
-|---|---|---|
-| `main` | ✅ Active | ROM display, skeleton overlay, dual camera |
-| `fixed` | 🔧 Ahead of main | Additional exercise library entries |
-| `taruni` | ✅ Merged | ROM + skeleton features (merged into main) |
-| `feature/new-features` | 🔄 Behind main | Earlier rep counter work |
-| `deep` | 📦 Stale | Dual camera + RehabCoach UI experiments |
-
----
-
 ## Team
 
-Built at the **Dell × NVIDIA GB10 Hackathon, 2026**
-NYU Tandon School of Engineering
-
----
-
-## License
-
-Apache 2.0
+Built by **Deepanshu Mody, Anagha Palandye, Taruni Nugooru**
+NYU Center for Data Science
+Dell × NVIDIA Hackathon, February 2026
