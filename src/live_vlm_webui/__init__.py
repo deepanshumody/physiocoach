@@ -28,5 +28,11 @@ from . import server
 from . import video_processor
 from . import gpu_monitor
 from . import vlm_service
+from . import rom_service
+from . import exercise_library
+from . import session_manager
 
-__all__ = ["server", "video_processor", "gpu_monitor", "vlm_service"]
+__all__ = [
+    "server", "video_processor", "gpu_monitor", "vlm_service",
+    "rom_service", "exercise_library", "session_manager",
+]

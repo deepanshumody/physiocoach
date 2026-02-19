@@ -149,6 +149,23 @@
         .modal input, .modal select { width: 100%; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 0.9rem; }
         .modal-actions { display: flex; gap: 8px; margin-top: 20px; justify-content: flex-end; }
 
+        /* ROM overlay cards on video */
+        .rom-overlay { position: absolute; bottom: 12px; right: 12px; pointer-events: none; display: flex; flex-direction: column; gap: 6px; align-items: flex-end; z-index: 10; }
+        .rom-card { display: flex; align-items: center; gap: 8px; background: rgba(0,0,0,0.75); backdrop-filter: blur(6px); border-radius: 8px; padding: 6px 10px; border-left: 3px solid #22c55e; }
+        .rom-card .rom-val { font-size: 1.3rem; font-weight: 800; font-family: 'Courier New', monospace; }
+        .rom-card .rom-meta { display: flex; flex-direction: column; gap: 1px; color: #cbd5e1; }
+        .rom-card .rom-joint { font-size: 0.72rem; font-weight: 600; text-transform: capitalize; color: white; }
+        .rom-card .rom-info { font-size: 0.62rem; opacity: 0.8; }
+        .rom-card .rom-status { font-size: 0.58rem; font-weight: 700; text-transform: uppercase; padding: 1px 5px; border-radius: 3px; }
+
+        /* ROM sidebar section */
+        .rom-sb-item { display: flex; justify-content: space-between; align-items: center; padding: 8px 10px; background: var(--surface-alt); border-radius: 8px; border-left: 3px solid var(--primary); }
+        .rom-sb-item .rom-sb-label { font-size: 0.8rem; font-weight: 500; text-transform: capitalize; }
+        .rom-sb-item .rom-sb-angle { font-size: 1.1rem; font-weight: 700; }
+        .rom-sb-item .rom-sb-guide { font-size: 0.7rem; color: var(--text-muted); }
+        .rom-sb-bar { height: 4px; border-radius: 2px; background: rgba(0,0,0,0.1); overflow: hidden; margin-top: 4px; }
+        .rom-sb-bar-fill { height: 100%; border-radius: 2px; transition: width 0.5s; }
+
         @media (max-width: 800px) {
             .main { grid-template-columns: 1fr; grid-template-rows: 55vh auto auto; }
             .sidebar { border-left: none; border-top: 1px solid #e2e8f0; }
@@ -178,6 +195,7 @@
         <div class="video-panel" id="frontPanel">
             <video id="frontVideo" autoplay playsinline muted></video>
             <div class="video-label">FRONT</div>
+            <div class="rom-overlay" id="romOverlay" style="display:none;"></div>
             <div class="coaching-overlay" id="coachingOverlay">
                 <div class="coaching-text" id="coachingText">Start a session to receive real-time coaching.</div>
                 <div class="coaching-meta">
@@ -231,6 +249,11 @@
                 <button class="chat-send-btn" id="chatSendBtn" title="Send"><i data-lucide="send"></i></button>
                 <button class="chat-mic-btn" id="chatMicBtn" title="Voice input"><i data-lucide="mic"></i></button>
             </div>
+        </div>
+
+        <div class="sidebar-section" id="romSidebarSection" style="display:none;">
+            <h3>Joint ROM</h3>
+            <div id="romSidebarContent" style="display:flex;flex-direction:column;gap:8px;"></div>
         </div>
 
         <div class="sidebar-section">
@@ -512,13 +535,61 @@ async function handleMessage(data) {
         if (data.metrics) updateMetrics(data.metrics);
     } else if (data.type === 'chat_response') {
         showChatResponse(data.question, data.answer);
+    } else if (data.type === 'rom_update') {
+        updateROMDisplay(data.rom || []);
     } else if (data.type === 'session_started') {
         onSessionStarted(data);
     } else if (data.type === 'session_ended') {
+        updateROMDisplay([]);
         onSessionEnded(data);
     } else if (data.type === 'server_config') {
         document.getElementById('apiBaseInput').value = data.api_base || '';
     }
+}
+
+function updateROMDisplay(romAngles) {
+    const overlay = document.getElementById('romOverlay');
+    const section = document.getElementById('romSidebarSection');
+    const content = document.getElementById('romSidebarContent');
+    if (!romAngles || romAngles.length === 0) {
+        overlay.style.display = 'none';
+        section.style.display = 'none';
+        return;
+    }
+    overlay.style.display = 'flex';
+    section.style.display = 'block';
+
+    overlay.innerHTML = '';
+    romAngles.forEach(r => {
+        const remaining = r.remaining || 0;
+        const txt = remaining > 0 ? `${Math.round(remaining)}\u00B0 more to go` : 'Target reached!';
+        const card = document.createElement('div');
+        card.className = 'rom-card';
+        card.style.borderLeftColor = r.color;
+        card.innerHTML = `
+            <span class="rom-val" style="color:${r.color}">${Math.round(r.angle)}\u00B0</span>
+            <div class="rom-meta">
+                <span class="rom-joint">${(r.label || r.joint).replace(/_/g,' ')}</span>
+                <span class="rom-info">${txt} \u2022 Target: ${r.target}\u00B0</span>
+                <span class="rom-status" style="background:${r.color}22;color:${r.color}">${r.status}</span>
+            </div>`;
+        overlay.appendChild(card);
+    });
+
+    content.innerHTML = '';
+    romAngles.forEach(r => {
+        const el = document.createElement('div');
+        el.className = 'rom-sb-item';
+        el.style.borderLeftColor = r.color;
+        el.innerHTML = `
+            <div style="flex:1;min-width:0;">
+                <div class="rom-sb-label">${(r.label || r.joint).replace(/_/g,' ')}</div>
+                <div class="rom-sb-guide">${r.guidance || ''}</div>
+                <div class="rom-sb-bar"><div class="rom-sb-bar-fill" style="width:${Math.min(r.percent,100)}%;background:${r.color};"></div></div>
+            </div>
+            <span class="rom-sb-angle" style="color:${r.color}">${Math.round(r.angle)}\u00B0</span>`;
+        content.appendChild(el);
+    });
 }
 
 function showCoachingTip(text, metrics) {
