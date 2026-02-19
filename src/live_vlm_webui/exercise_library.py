@@ -34,6 +34,7 @@ class Exercise:
     primary_joint: Optional[tuple[str, str, str]] = None
     rep_down_threshold: float = 90.0
     rep_up_threshold: float = 150.0
+    expected_objects: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -64,6 +65,14 @@ class Exercise:
         mistakes_str = "\n".join(f"  - {m}" for m in self.common_mistakes)
         phases_str = ", ".join(self.phases)
         rom_section = self._rom_prompt_section()
+        objects_section = ""
+        if self.expected_objects:
+            objects = ", ".join(self.expected_objects)
+            objects_section = (
+                f"Expected objects/equipment for this exercise: {objects}.\n"
+                "Identify whether these objects are visible and being used correctly.\n"
+                "If a needed object is missing or used unsafely, include one clear correction.\n"
+            )
         rom_fields = ""
         if self.rom_targets:
             rom_fields = ", " + ", ".join(
@@ -78,16 +87,27 @@ class Exercise:
             f"Correct form: {self.correct_form}\n"
             f"Movement phases (in order): {phases_str}\n"
             f"Common mistakes to watch for:\n{mistakes_str}\n"
+            f"{objects_section}"
             f"{rom_section}"
             f"\n"
             f"Respond ONLY with a valid JSON object (no markdown, no extra text):\n"
             f'{{"exercise_detected": true/false, "phase": "<one of: {phases_str}>", '
             f'"form_score": <1-10>, "corrections": ["<specific correction>"], '
-            f'"rep_boundary": true/false, "feedback": "<brief encouraging or corrective message>"'
+            f'"rep_boundary": true/false, "feedback": "<clear user-facing coaching message>"'
             f'{rom_fields}}}\n'
             f"\n"
+            f'Feedback quality requirements when "exercise_detected" is true:\n'
+            f"- Write 2-4 short sentences in plain language.\n"
+            f"- Start with one concrete positive observation.\n"
+            f"- Then give one highest-priority correction with a body part and direction.\n"
+            f"- End with one next-step cue for the next rep.\n"
+            f"- Mention object/equipment usage when relevant (e.g., wall distance, chair support, weight control).\n"
+            f"- Be specific and actionable; avoid vague praise.\n"
+            f"- Avoid repeating the exact same wording as prior responses unless necessary.\n"
+            f"\n"
             f'Set "rep_boundary" to true ONLY when the person transitions from "{self.rep_end_phase}" back to "{self.rep_start_phase}" (one full rep just completed).\n'
-            f"If you cannot see the person or they are not exercising, set exercise_detected to false."
+            f'If you cannot see the person clearly or they are not exercising, set "exercise_detected" to false and '
+            f'provide a short repositioning cue in "feedback" (for example: "Please step back so I can see your full body from head to feet.").'
         )
 
 
@@ -165,6 +185,7 @@ EXERCISES: list[Exercise] = [
             "Head dropping forward",
             "Standing too close or too far from wall",
         ],
+        expected_objects=["wall"],
         phases=["extended", "lowering", "chest_near_wall", "pushing_back"],
         rep_start_phase="extended",
         rep_end_phase="pushing_back",
@@ -188,6 +209,7 @@ EXERCISES: list[Exercise] = [
             "Arching the back",
             "Bending the wrists",
         ],
+        expected_objects=["dumbbells (optional)"],
         phases=["arms_down", "raising", "arms_up", "lowering"],
         rep_start_phase="arms_down",
         rep_end_phase="lowering",
@@ -211,6 +233,7 @@ EXERCISES: list[Exercise] = [
             "Going too fast (no control on the way down)",
             "Leaning forward",
         ],
+        expected_objects=["chair (optional support)"],
         phases=["flat", "rising", "top", "lowering"],
         rep_start_phase="flat",
         rep_end_phase="lowering",
@@ -234,6 +257,7 @@ EXERCISES: list[Exercise] = [
             "Lifting the thigh off the chair",
             "Lowering too quickly",
         ],
+        expected_objects=["chair"],
         phases=["knee_bent", "extending", "fully_extended", "lowering"],
         rep_start_phase="knee_bent",
         rep_end_phase="lowering",
@@ -280,6 +304,7 @@ EXERCISES: list[Exercise] = [
             "Moving too fast / swinging",
             "Not standing tall (slouching)",
         ],
+        expected_objects=["chair (optional support)"],
         phases=["legs_together", "lifting", "leg_out", "returning"],
         rep_start_phase="legs_together",
         rep_end_phase="returning",
@@ -303,6 +328,7 @@ EXERCISES: list[Exercise] = [
             "Lowering too fast (no eccentric control)",
             "Shrugging shoulders",
         ],
+        expected_objects=["dumbbells or resistance bands (optional)"],
         phases=["arms_extended", "curling", "top", "lowering"],
         rep_start_phase="arms_extended",
         rep_end_phase="lowering",

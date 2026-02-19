@@ -65,23 +65,30 @@ active_processor_tracks: set = set()  # Track active VideoProcessorTrack instanc
 
 DEFAULT_COACHING_PROMPT = (
     "You are an expert physical therapy coach giving real-time feedback.\n\n"
-    "Look at this image and give ONE specific, actionable coaching cue based on what you see. "
-    "Comment on the person's posture, alignment, position, or movement. "
-    "If they are exercising, name the exercise and correct their form. "
-    "If they are standing or resting, comment on their posture or readiness.\n\n"
-    "Max 2 short sentences. No lists. No markdown. No disclaimers. Always say something specific."
+    "Look at this image and provide detailed, practical coaching based on what you see. "
+    "Comment on posture, alignment, movement quality, and likely next adjustment. "
+    "Recognize relevant exercise objects/equipment (for example: chair, wall, dumbbells, resistance bands, step) "
+    "and comment briefly on whether they are being used correctly and safely. "
+    "If they are exercising, identify the exercise and describe what is going well plus what to correct next. "
+    "If they are standing or resting, describe readiness, balance, and setup quality.\n\n"
+    "Use 3 to 5 concise sentences in plain, supportive language. "
+    "Structure the response as: one concrete positive observation, one highest-priority correction, and one next-step cue. "
+    "No lists. No markdown. No disclaimers. "
+    "Avoid repeating the exact same phrasing across consecutive responses; if little changed, briefly say that and add one fresh micro-cue."
 )
 
 FRONT_CAMERA_PROMPT = (
     "You are an expert PT coach watching the FRONT view. "
-    "Give ONE correction about symmetry, alignment, knee tracking, hip level, or shoulder position. "
-    "Max 2 short sentences. No lists. No markdown. Be specific."
+    "Give detailed guidance about symmetry, alignment, knee tracking, hip level, and shoulder position. "
+    "Prioritize one correction, then add one supporting observation. "
+    "Use 3 to 4 concise sentences. No lists. No markdown. Be specific."
 )
 
 SIDE_CAMERA_PROMPT = (
     "You are an expert PT coach watching the SIDE view. "
-    "Give ONE correction about spine angle, knee bend depth, forward lean, hip hinge, or posture. "
-    "Max 2 short sentences. No lists. No markdown. Be specific."
+    "Give detailed guidance about spine angle, knee bend depth, forward lean, hip hinge, and posture. "
+    "Prioritize one correction, then add one supporting observation. "
+    "Use 3 to 4 concise sentences. No lists. No markdown. Be specific."
 )
 
 # Multi-camera support: track how many cameras are connected (max 2)
@@ -492,9 +499,17 @@ async def websocket_handler(request):
                             await ws.send_json({"type": "exercise_selected", "exercise": {"id": "general", "name": "General Coach"}})
 
                     elif data.get("type") == "start_exercise_session":
-                        global _last_coaching_text, _last_vlm_response
-                        _last_coaching_text = ""
+                        global _last_coaching_text_by_camera, _last_vlm_response
+                        global _last_combined_feedback, _pending_feedback_by_camera, _pending_metrics_by_camera
+                        global _feedback_combiner_task
+                        _last_coaching_text_by_camera = {}
                         _last_vlm_response = ""
+                        _last_combined_feedback = ""
+                        _pending_feedback_by_camera = {}
+                        _pending_metrics_by_camera = {}
+                        if _feedback_combiner_task and not _feedback_combiner_task.done():
+                            _feedback_combiner_task.cancel()
+                        _feedback_combiner_task = None
                         exercise_id = data.get("exercise_id") or active_exercise_id or "general"
                         ex = get_exercise(exercise_id)
                         if not ex:
@@ -504,23 +519,35 @@ async def websocket_handler(request):
                         active_exercise_id = exercise_id
 
                         if exercise_id == "general":
-                            vlm_service.set_coaching_prompt(DEFAULT_COACHING_PROMPT)
+                            vlm_service.set_coaching_prompt(DEFAULT_COACHING_PROMPT, max_tokens=220)
                         else:
-                            vlm_service.set_coaching_prompt(ex.build_vlm_prompt(), max_tokens=200)
+                            vlm_service.set_coaching_prompt(ex.build_vlm_prompt(), max_tokens=260)
                         VideoProcessorTrack._coaching_active = True
+                        VideoProcessorTrack._next_vlm_camera_id = 1
                         # Reset prior pose-tracking config so sessions don't leak rep state.
                         for pt in active_processor_tracks:
                             if pt.pose_detector.available:
                                 pt.pose_detector.clear_exercise()
 
                         # Assign per-camera prompts based on connected slots
+                        dual_camera_mode = len(camera_slots) >= 2
                         for pt in active_processor_tracks:
                             cam_id = getattr(pt, 'camera_id', 1)
-                            if len(camera_slots) >= 2:
-                                # Dual camera mode: front vs side prompts
-                                pt.coaching_prompt = FRONT_CAMERA_PROMPT if cam_id == 1 else SIDE_CAMERA_PROMPT
+                            pt.fair_dual_camera_vlm = dual_camera_mode
+                            if dual_camera_mode:
+                                view_hint = FRONT_CAMERA_PROMPT if cam_id == 1 else SIDE_CAMERA_PROMPT
+                                if exercise_id == "general":
+                                    # In general mode, each camera can use its own view-specific prompt.
+                                    pt.coaching_prompt = view_hint
+                                else:
+                                    # Keep exercise JSON schema prompt, but add camera-view guidance.
+                                    pt.coaching_prompt = (
+                                        f"{ex.build_vlm_prompt()}\n\n"
+                                        f"CAMERA VIEW CONTEXT:\n{view_hint}\n"
+                                        "Keep the same JSON schema exactly."
+                                    )
                             else:
-                                pt.coaching_prompt = DEFAULT_COACHING_PROMPT
+                                pt.coaching_prompt = ex.build_vlm_prompt() if exercise_id != "general" else DEFAULT_COACHING_PROMPT
 
                         # Configure MediaPipe rep counting only for specific exercises
                         if ex and ex.primary_joint:
@@ -547,12 +574,19 @@ async def websocket_handler(request):
                         await ws.send_json({"type": "session_resumed"})
 
                     elif data.get("type") == "end_exercise_session":
-                        _last_coaching_text = ""
+                        _last_coaching_text_by_camera = {}
                         _last_vlm_response = ""
+                        _last_combined_feedback = ""
+                        _pending_feedback_by_camera = {}
+                        _pending_metrics_by_camera = {}
+                        if _feedback_combiner_task and not _feedback_combiner_task.done():
+                            _feedback_combiner_task.cancel()
+                        _feedback_combiner_task = None
                         VideoProcessorTrack._coaching_active = False
                         vlm_service.clear_coaching()
                         pose_reps = 0
                         for pt in active_processor_tracks:
+                            pt.fair_dual_camera_vlm = False
                             if pt.pose_detector.available:
                                 pose_reps = max(pose_reps, pt.pose_detector.reps)
                                 pt.pose_detector.clear_exercise()
@@ -627,19 +661,128 @@ async def websocket_handler(request):
     return ws
 
 
-_last_coaching_text = ""
+_last_coaching_text_by_camera: dict[int, str] = {}
 _last_vlm_response = ""
+_last_combined_feedback = ""
+_pending_feedback_by_camera: dict[int, str] = {}
+_pending_metrics_by_camera: dict[int, dict] = {}
+_feedback_combiner_task = None
+_feedback_combine_delay_sec = 2.8
+
+
+def _merge_feedback_metrics(metrics_by_camera: dict[int, dict]) -> dict:
+    """Merge per-camera metrics into one compact payload for the UI."""
+    vals = [m for m in metrics_by_camera.values() if isinstance(m, dict)]
+    if not vals:
+        return {}
+    best = max(vals, key=lambda m: m.get("total_inferences", 0))
+    return {
+        "last_latency_ms": best.get("last_latency_ms", 0),
+        "avg_latency_ms": best.get("avg_latency_ms", 0),
+        "total_inferences": best.get("total_inferences", 0),
+        "is_processing": any(bool(m.get("is_processing")) for m in vals),
+    }
+
+
+async def _combine_feedback_with_llm(feedback_by_camera: dict[int, str]) -> str:
+    """Use the configured LLM to synthesize one digestible coaching message."""
+    front = feedback_by_camera.get(1, "").strip()
+    side = feedback_by_camera.get(2, "").strip()
+    general = feedback_by_camera.get(0, "").strip()
+
+    parts = []
+    if general:
+        parts.append(f"General: {general}")
+    if front:
+        parts.append(f"Front camera: {front}")
+    if side:
+        parts.append(f"Side camera: {side}")
+    if not parts:
+        return ""
+
+    # Fallback if the LLM call fails.
+    fallback = " ".join(parts)
+    if not vlm_service:
+        return fallback
+
+    try:
+        response = await vlm_service.client.chat.completions.create(
+            model=vlm_service.model,
+            temperature=0.35,
+            max_tokens=140,
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a physical therapy coach assistant that combines multiple camera observations. "
+                        "Return ONE concise, actionable coaching update for the user. "
+                        "Use 2-4 short sentences. Include one positive observation, one highest-priority correction, "
+                        "and one next-step cue. No lists. No markdown. No disclaimers."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        "Combine these latest observations into a single coaching message:\n"
+                        + "\n".join(f"- {p}" for p in parts)
+                    ),
+                },
+            ],
+        )
+        combined = (response.choices[0].message.content or "").strip()
+        return combined or fallback
+    except Exception as e:
+        logger.warning(f"LLM feedback combiner failed, using fallback: {e}")
+        return fallback
+
+
+def _schedule_feedback_combine():
+    """Debounce and schedule a combined coaching update."""
+    global _feedback_combiner_task
+    if _feedback_combiner_task and not _feedback_combiner_task.done():
+        return
+    _feedback_combiner_task = asyncio.create_task(_emit_combined_feedback_after_delay())
+
+
+async def _emit_combined_feedback_after_delay():
+    """Emit a single combined coaching_tip built from latest per-camera tips."""
+    global _feedback_combiner_task, _pending_feedback_by_camera, _pending_metrics_by_camera, _last_combined_feedback
+    try:
+        await asyncio.sleep(_feedback_combine_delay_sec)
+        feedback_snapshot = dict(_pending_feedback_by_camera)
+        metrics_snapshot = dict(_pending_metrics_by_camera)
+        _pending_feedback_by_camera.clear()
+        _pending_metrics_by_camera.clear()
+        if not feedback_snapshot:
+            return
+
+        combined = await _combine_feedback_with_llm(feedback_snapshot)
+        combined = combined.strip()
+        if not combined or combined == _last_combined_feedback:
+            return
+
+        _last_combined_feedback = combined
+        _broadcast_json(
+            {
+                "type": "coaching_tip",
+                "text": combined,
+                "metrics": _merge_feedback_metrics(metrics_snapshot),
+            }
+        )
+    finally:
+        _feedback_combiner_task = None
+        if _pending_feedback_by_camera:
+            _schedule_feedback_combine()
 
 def broadcast_text_update(text: str, metrics: dict, camera_id: int = 1):
     """Broadcast text update and metrics to all connected WebSocket clients"""
-    global _last_coaching_text, _last_vlm_response
+    global _last_coaching_text_by_camera, _last_vlm_response
     if not websockets:
         return
 
-    message = json.dumps({"type": "vlm_response", "text": text, "metrics": metrics, "camera_id": camera_id})
-
-    if vlm_service and vlm_service.coaching_active and text and text != _last_coaching_text and not text.startswith("Error:") and text != "Initializing...":
-        _last_coaching_text = text
+    last_for_camera = _last_coaching_text_by_camera.get(camera_id, "")
+    if vlm_service and vlm_service.coaching_active and text and text != last_for_camera and not text.startswith("Error:") and text != "Initializing...":
+        _last_coaching_text_by_camera[camera_id] = text
 
         display_text = text
         if active_exercise_id:
@@ -665,7 +808,9 @@ def broadcast_text_update(text: str, metrics: dict, camera_id: int = 1):
                     }
                     asyncio.create_task(_record_frame_safe(record))
 
-        _broadcast_json({"type": "coaching_tip", "text": display_text, "metrics": metrics})
+        _pending_feedback_by_camera[camera_id] = display_text
+        _pending_metrics_by_camera[camera_id] = metrics or {}
+        _schedule_feedback_combine()
 
 
 async def _record_frame_safe(parsed: dict):

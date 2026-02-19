@@ -77,6 +77,7 @@ class VLMService:
         self.temperature = 0.7
         self.client = AsyncOpenAI(base_url=api_base, api_key=api_key)
         self.current_response = "Initializing..."
+        self.current_response_camera_id: Optional[int] = None
         self.is_processing = False
         self._processing_lock = asyncio.Lock()
 
@@ -151,14 +152,14 @@ class VLMService:
             logger.error(f"Error analyzing image: {e}")
             return f"Error: {str(e)}"
 
-    def get_current_response(self) -> tuple[str, bool]:
+    def get_current_response(self) -> tuple[str, bool, Optional[int]]:
         """
         Get the current response and processing status
 
         Returns:
-            Tuple of (response, is_processing)
+            Tuple of (response, is_processing, source_camera_id)
         """
-        return self.current_response, self.is_processing
+        return self.current_response, self.is_processing, self.current_response_camera_id
 
     def get_metrics(self) -> dict:
         """
@@ -214,7 +215,9 @@ class VLMService:
     def coaching_active(self) -> bool:
         return self._coaching_active
 
-    async def process_frame(self, image: Image.Image, prompt: Optional[str] = None) -> None:
+    async def process_frame(
+        self, image: Image.Image, prompt: Optional[str] = None, source_camera_id: Optional[int] = None
+    ) -> None:
         """
         Process a frame asynchronously. Updates self.current_response when done.
         In coaching mode, uses per-track prompt if provided, else coaching prompt.
@@ -236,6 +239,7 @@ class VLMService:
 
                 response = await self.analyze_image(image, effective_prompt)
                 self.current_response = response
+                self.current_response_camera_id = source_camera_id
             finally:
                 self.is_processing = False
 

@@ -303,7 +303,13 @@ let sessionStartTime = null;
 let timerInterval = null;
 let voiceEnabled = true;
 let lastSpokenTime = 0;
+let lastSpokenSignature = '';
 let coachMessages = [];
+let lastCoachingShownAt = 0;
+let lastShownCameraId = null;
+let coachingDisplayTimer = null;
+const coachingDisplayCooldownMs = 4500;
+const pendingCoachingByCamera = new Map();
 
 const cams = { front: { stream: null, pc: null, started: false }, side: { stream: null, pc: null, started: false } };
 let roleReps = { front: 0, side: 0 };
@@ -509,7 +515,7 @@ function connectWebSocket() {
 
 async function handleMessage(data) {
     if (data.type === 'coaching_tip') {
-        showCoachingTip(data.text, data.metrics);
+        enqueueCoachingTip(data.text, data.metrics, data.camera_id);
     } else if (data.type === 'view_other_camera') {
         await setupViewerPC();
     } else if (data.type === 'camera_connected') {
@@ -545,6 +551,55 @@ async function handleMessage(data) {
     } else if (data.type === 'server_config') {
         document.getElementById('apiBaseInput').value = data.api_base || '';
     }
+}
+
+function enqueueCoachingTip(text, metrics, cameraId = null) {
+    if (!text || text.startsWith('Error:') || text === 'Initializing...') return;
+    const key = cameraId || 0;
+    // Keep only the latest pending tip per camera to avoid overwhelming the user.
+    pendingCoachingByCamera.set(key, { text, metrics, cameraId });
+    drainCoachingQueue();
+}
+
+function drainCoachingQueue() {
+    if (coachingDisplayTimer) return;
+    if (pendingCoachingByCamera.size === 0) return;
+
+    const now = Date.now();
+    const elapsed = now - lastCoachingShownAt;
+    const waitMs = Math.max(0, coachingDisplayCooldownMs - elapsed);
+    if (waitMs > 0) {
+        coachingDisplayTimer = setTimeout(() => {
+            coachingDisplayTimer = null;
+            drainCoachingQueue();
+        }, waitMs);
+        return;
+    }
+
+    const nextTip = pickNextCoachingTip();
+    if (!nextTip) return;
+    showCoachingTip(nextTip.text, nextTip.metrics, nextTip.cameraId);
+    lastCoachingShownAt = Date.now();
+
+    if (pendingCoachingByCamera.size > 0) {
+        coachingDisplayTimer = setTimeout(() => {
+            coachingDisplayTimer = null;
+            drainCoachingQueue();
+        }, coachingDisplayCooldownMs);
+    }
+}
+
+function pickNextCoachingTip() {
+    const entries = Array.from(pendingCoachingByCamera.entries());
+    if (entries.length === 0) return null;
+
+    let chosen = entries[0];
+    if (entries.length > 1 && lastShownCameraId !== null) {
+        const preferred = entries.find(([, tip]) => (tip.cameraId || 0) !== lastShownCameraId);
+        if (preferred) chosen = preferred;
+    }
+    pendingCoachingByCamera.delete(chosen[0]);
+    return chosen[1];
 }
 
 function updateROMDisplay(romAngles) {
@@ -592,10 +647,17 @@ function updateROMDisplay(romAngles) {
     });
 }
 
-function showCoachingTip(text, metrics) {
+function showCoachingTip(text, metrics, cameraId = null) {
     if (!text || text.startsWith('Error:') || text === 'Initializing...') return;
 
-    coachingText.textContent = text;
+    let shownText = text;
+    if (cameraId && (cams.front.started && cams.side.started)) {
+        const label = cameraId === 2 ? 'Side' : 'Front';
+        shownText = `[${label}] ${text}`;
+    }
+    lastShownCameraId = cameraId || 0;
+
+    coachingText.textContent = shownText;
     coachingText.classList.remove('fresh');
     void coachingText.offsetWidth;
     coachingText.classList.add('fresh');
@@ -604,14 +666,14 @@ function showCoachingTip(text, metrics) {
 
     const now = new Date();
     const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-    coachMessages.unshift({ text, time: timeStr });
+    coachMessages.unshift({ text: shownText, time: timeStr });
     if (coachMessages.length > 20) coachMessages.pop();
     renderCoachHistory();
 
     if (voiceEnabled && sessionActive) {
         const nowMs = Date.now();
         if (nowMs - lastSpokenTime > 5000) {
-            speak(text);
+            speak(toSpeechDigest(shownText, 1, 16), { dedupe: true });
             lastSpokenTime = nowMs;
         }
     }
@@ -650,7 +712,7 @@ function showChatResponse(question, answer) {
     coachingText.textContent = answer;
     coachingText.classList.remove('fresh'); void coachingText.offsetWidth; coachingText.classList.add('fresh');
 
-    if (voiceEnabled) { speak(answer); lastSpokenTime = Date.now(); }
+    if (voiceEnabled) { speak(toSpeechDigest(answer, 2, 30), { dedupe: true }); lastSpokenTime = Date.now(); }
 }
 
 // ─── Speech Recognition ───
@@ -715,6 +777,13 @@ function onSessionStarted(data) {
     roleReps = { front: 0, side: 0 };
     repCountEl.textContent = '0';
     coachMessages = [];
+    pendingCoachingByCamera.clear();
+    if (coachingDisplayTimer) {
+        clearTimeout(coachingDisplayTimer);
+        coachingDisplayTimer = null;
+    }
+    lastCoachingShownAt = 0;
+    lastShownCameraId = null;
     coachHistory.innerHTML = '';
     coachingText.textContent = 'Session started! Begin your exercise -- I\'m watching.';
 
@@ -753,6 +822,11 @@ function endSession() {
 
 function onSessionEnded(data) {
     sessionActive = false; sessionPaused = false; clearInterval(timerInterval);
+    pendingCoachingByCamera.clear();
+    if (coachingDisplayTimer) {
+        clearTimeout(coachingDisplayTimer);
+        coachingDisplayTimer = null;
+    }
     sessionTimerEl.style.display = 'none';
     startBtn.style.display = 'flex'; pauseBtn.style.display = 'none'; endBtn.style.display = 'none';
     coachingText.textContent = 'Session ended. Great work!';
@@ -770,10 +844,37 @@ function updateTimer() {
     sessionTimerEl.textContent = `${String(Math.floor(e/60)).padStart(2,'0')}:${String(e%60).padStart(2,'0')}`;
 }
 
-function speak(text) {
+function speak(text, opts = {}) {
     if (!window.speechSynthesis || !voiceEnabled) return;
+    const normalized = normalizeSpeechText(text);
+    if (!normalized) return;
+    if (opts.dedupe && normalized === lastSpokenSignature) return;
+    lastSpokenSignature = normalized;
+    // Keep spoken feedback short and avoid queue buildup.
+    window.speechSynthesis.cancel();
     const u = new SpeechSynthesisUtterance(text); u.rate = 1.05; u.pitch = 1.0;
     window.speechSynthesis.speak(u);
+}
+
+function normalizeSpeechText(text) {
+    return String(text || '')
+        .toLowerCase()
+        .replace(/[^a-z0-9\s]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
+function toSpeechDigest(text, maxSentences = 1, maxWords = 18) {
+    const src = String(text || '').trim();
+    if (!src) return '';
+    const sentenceMatches = src.match(/[^.!?]+[.!?]?/g) || [src];
+    const sentences = sentenceMatches.map(s => s.trim()).filter(Boolean).slice(0, Math.max(1, maxSentences));
+    let digest = sentences.join(' ');
+    const words = digest.split(/\s+/);
+    if (words.length > maxWords) {
+        digest = words.slice(0, maxWords).join(' ') + '...';
+    }
+    return digest;
 }
 
 async function loadModels() {

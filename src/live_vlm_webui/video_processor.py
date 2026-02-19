@@ -54,6 +54,8 @@ class VideoProcessorTrack(VideoStreamTrack):
     _coaching_active = False
     # How often to run pose detection (every Nth frame, cheap ~10ms)
     pose_every_n_frames = 3
+    # Round-robin turn for dual-camera VLM fairness.
+    _next_vlm_camera_id = 1
 
     def __init__(self, track: VideoStreamTrack, vlm_service: VLMService,
                  text_callback=None, pose_callback=None, camera_role: str = "front"):
@@ -64,6 +66,7 @@ class VideoProcessorTrack(VideoStreamTrack):
         self.pose_callback = pose_callback
         self.camera_role = camera_role
         self.camera_id = 1 if camera_role == "front" else 2
+        self.fair_dual_camera_vlm = False
         self.coaching_prompt = None  # Per-track prompt set by server on session start
         self.pose_detector = PoseDetector()
         self.last_frame: Optional[np.ndarray] = None
@@ -179,21 +182,35 @@ class VideoProcessorTrack(VideoStreamTrack):
 
                 # VLM analysis (async, non-blocking, slow but smart)
                 if need_vlm:
+                    # In dual-camera mode with a shared VLM worker, alternate turns
+                    # so both camera feeds are analyzed fairly.
+                    if self.fair_dual_camera_vlm:
+                        if self.camera_id != cls._next_vlm_camera_id or self.vlm_service.is_processing:
+                            need_vlm = False
+                        else:
+                            cls._next_vlm_camera_id = 2 if self.camera_id == 1 else 1
+
+                if need_vlm:
                     pil_img = Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
                     prompt = self.coaching_prompt if (self._coaching_active and self.coaching_prompt) else None
-                    asyncio.create_task(self.vlm_service.process_frame(pil_img, prompt=prompt))
+                    asyncio.create_task(
+                        self.vlm_service.process_frame(
+                            pil_img, prompt=prompt, source_camera_id=self.camera_id
+                        )
+                    )
                     if self.frame_count % 150 == 0:
                         logger.info(f"Frame {self.frame_count}: Sending to VLM (interval={vlm_interval})")
 
             # Get current response (may be old if VLM is still processing)
-            response, is_processing = self.vlm_service.get_current_response()
+            response, is_processing, source_camera_id = self.vlm_service.get_current_response()
 
             # Get metrics
             metrics = self.vlm_service.get_metrics()
 
             # Send text update via callback (for WebSocket)
             if self.text_callback:
-                self.text_callback(response, metrics)
+                if source_camera_id is None or source_camera_id == self.camera_id:
+                    self.text_callback(response, metrics)
 
             # Return original frame directly - zero-copy passthrough!
             # This avoids expensive BGR→YUV conversion
