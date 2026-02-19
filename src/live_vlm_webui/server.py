@@ -667,7 +667,7 @@ _last_combined_feedback = ""
 _pending_feedback_by_camera: dict[int, str] = {}
 _pending_metrics_by_camera: dict[int, dict] = {}
 _feedback_combiner_task = None
-_feedback_combine_delay_sec = 2.8
+_feedback_combine_delay_sec = 1.8
 
 
 def _merge_feedback_metrics(metrics_by_camera: dict[int, dict]) -> dict:
