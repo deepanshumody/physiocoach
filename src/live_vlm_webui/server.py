@@ -522,14 +522,20 @@ async def websocket_handler(request):
                             else:
                                 pt.coaching_prompt = DEFAULT_COACHING_PROMPT
 
-                        # Configure MediaPipe rep counting if a specific exercise is selected
+                        # Configure MediaPipe rep counting
                         if ex and ex.primary_joint:
-                            for pt in active_processor_tracks:
-                                if pt.pose_detector.available:
-                                    pt.pose_detector.configure_exercise(
-                                        ex.primary_joint, ex.rep_down_threshold, ex.rep_up_threshold
-                                    )
-                            logger.info(f"Pose rep counting configured: joint={ex.primary_joint}")
+                            joint = ex.primary_joint
+                            down_thresh = ex.rep_down_threshold
+                            up_thresh = ex.rep_up_threshold
+                        else:
+                            # General mode: default to squat/knee angle tracking
+                            joint = ("left_hip", "left_knee", "left_ankle")
+                            down_thresh = 100
+                            up_thresh = 155
+                        for pt in active_processor_tracks:
+                            if pt.pose_detector.available:
+                                pt.pose_detector.configure_exercise(joint, down_thresh, up_thresh)
+                        logger.info(f"Pose rep counting configured: joint={joint}")
 
                         sid = await session_manager.start_session(exercise_id)
                         ex_info = ex.to_dict() if ex else {"id": "general", "name": "General Coach"}
