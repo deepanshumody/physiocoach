@@ -178,8 +178,8 @@ def draw_skeleton(frame: np.ndarray, landmarks: dict, tracked_joint=None,
         pa, pb = _pt(a_name), _pt(b_name)
         if pa and pb:
             is_tracked = (a_name in tracked_names and b_name in tracked_names)
-            color = (0, 255, 255) if is_tracked else (100, 100, 100)
-            thickness = 4 if is_tracked else 2
+            color = (0, 255, 0) if is_tracked else (150, 150, 150)  # Green for tracked, gray for others
+            thickness = 5 if is_tracked else 2
             cv2.line(overlay, pa, pb, color, thickness, cv2.LINE_AA)
     
     # Draw joint dots
@@ -187,8 +187,8 @@ def draw_skeleton(frame: np.ndarray, landmarks: dict, tracked_joint=None,
         p = _pt(name)
         if p:
             is_tracked = name in tracked_names
-            color = (0, 255, 255) if is_tracked else (180, 180, 180)
-            radius = 6 if is_tracked else 3
+            color = (0, 255, 0) if is_tracked else (200, 200, 200)
+            radius = 7 if is_tracked else 4
             cv2.circle(overlay, p, radius, color, -1, cv2.LINE_AA)
     
     # Draw angle at tracked joint
@@ -198,10 +198,10 @@ def draw_skeleton(frame: np.ndarray, landmarks: dict, tracked_joint=None,
         ai = (int(a[0]), int(a[1]))
         ci = (int(c[0]), int(c[1]))
         
-        # Draw angle lines
-        cv2.line(overlay, bi, ai, (0, 255, 255), 4, cv2.LINE_AA)
-        cv2.line(overlay, bi, ci, (0, 255, 255), 4, cv2.LINE_AA)
-        cv2.circle(overlay, bi, 8, (0, 255, 255), -1, cv2.LINE_AA)
+        # Draw angle lines (bright green)
+        cv2.line(overlay, bi, ai, (0, 255, 0), 5, cv2.LINE_AA)
+        cv2.line(overlay, bi, ci, (0, 255, 0), 5, cv2.LINE_AA)
+        cv2.circle(overlay, bi, 9, (0, 255, 0), -1, cv2.LINE_AA)
         
         # Skip arc for neck (obtuse angle looks confusing)
         is_neck = joint_keys == ("left_shoulder", "nose", "right_shoulder")
@@ -213,15 +213,15 @@ def draw_skeleton(frame: np.ndarray, landmarks: dict, tracked_joint=None,
             end = max(ang_a, ang_c)
             if end - start > 180:
                 start, end = end, start + 360
-            cv2.ellipse(overlay, bi, (arc_r, arc_r), 0, start, end, (0, 255, 255), 2, cv2.LINE_AA)
+            cv2.ellipse(overlay, bi, (arc_r, arc_r), 0, start, end, (0, 255, 0), 3, cv2.LINE_AA)
         
         # Angle label
         label = f"{int(angle)}\u00b0"
         tx, ty = bi[0] + 14, bi[1] - 14
-        cv2.putText(overlay, label, (tx + 1, ty + 1), cv2.FONT_HERSHEY_SIMPLEX, 0.7,
-                    (0, 0, 0), 4, cv2.LINE_AA)
-        cv2.putText(overlay, label, (tx, ty), cv2.FONT_HERSHEY_SIMPLEX, 0.7,
-                    (0, 255, 255), 2, cv2.LINE_AA)
+        cv2.putText(overlay, label, (tx + 1, ty + 1), cv2.FONT_HERSHEY_SIMPLEX, 0.8,
+                    (0, 0, 0), 5, cv2.LINE_AA)
+        cv2.putText(overlay, label, (tx, ty), cv2.FONT_HERSHEY_SIMPLEX, 0.8,
+                    (0, 255, 0), 3, cv2.LINE_AA)
     
     # ROM angles overlay (top-right corner)
     if rom_angles:
@@ -239,10 +239,10 @@ def draw_skeleton(frame: np.ndarray, landmarks: dict, tracked_joint=None,
             rx = max(10, w - tw - 20)
             ry = 54
             cv2.rectangle(overlay, (rx - 8, ry - th - 6), (min(w - 8, rx + tw + 8), ry + 8), (0, 0, 0), -1)
-            cv2.rectangle(overlay, (rx - 8, ry - th - 6), (min(w - 8, rx + tw + 8), ry + 8), (0, 255, 255), 2, cv2.LINE_AA)
-            cv2.putText(overlay, txt, (rx, ry), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2, cv2.LINE_AA)
+            cv2.rectangle(overlay, (rx - 8, ry - th - 6), (min(w - 8, rx + tw + 8), ry + 8), (0, 255, 0), 2, cv2.LINE_AA)
+            cv2.putText(overlay, txt, (rx, ry), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2, cv2.LINE_AA)
     
-    cv2.addWeighted(overlay, 0.7, frame, 0.3, 0, frame)
+    cv2.addWeighted(overlay, 0.85, frame, 0.15, 0, frame)
     return frame
 
 
@@ -341,46 +341,62 @@ class PoseDetector:
             a, b, c = pt(a_name), pt(b_name), pt(c_name)
             joint_keys_used = self._joint_keys
             
-            # Auto-detect which arm for shoulder exercises
-            if not (a and b and c) or (b_name in ["left_shoulder", "right_shoulder"] and "wrist" in c_name):
-                # Check which arm is more raised
+            # Auto-detect which arm for shoulder/elbow exercises
+            if not (a and b and c) or (b_name in ["left_shoulder", "right_shoulder", "left_elbow", "right_elbow"] and "wrist" in c_name):
+                # Detect which arm is active
                 left_wrist = pt("left_wrist")
                 right_wrist = pt("right_wrist")
                 left_shoulder = pt("left_shoulder")
                 right_shoulder = pt("right_shoulder")
+                left_elbow = pt("left_elbow")
+                right_elbow = pt("right_elbow")
+                
+                use_side = "left"  # default
                 
                 if left_wrist and right_wrist and left_shoulder and right_shoulder:
-                    # Compare wrist heights (lower y = higher on screen)
-                    left_raised = left_wrist[1] < left_shoulder[1]
-                    right_raised = right_wrist[1] < right_shoulder[1]
+                    # For shoulder exercises: check wrist height
+                    if "shoulder" in b_name:
+                        left_raised = left_wrist[1] < left_shoulder[1]
+                        right_raised = right_wrist[1] < right_shoulder[1]
+                        
+                        if left_raised and not right_raised:
+                            use_side = "left"
+                        elif right_raised and not left_raised:
+                            use_side = "right"
+                        elif left_raised and right_raised:
+                            use_side = "left" if left_wrist[1] < right_wrist[1] else "right"
                     
-                    if left_raised and not right_raised:
-                        use_side = "left"
-                    elif right_raised and not left_raised:
-                        use_side = "right"
-                    elif left_raised and right_raised:
-                        # Both raised, use the higher one
-                        use_side = "left" if left_wrist[1] < right_wrist[1] else "right"
-                    else:
-                        use_side = "left"  # default
-                    
-                    # Try with detected side
-                    a = pt(f"{use_side}_hip") if "hip" in a_name else pt(f"{'right' if use_side == 'left' else 'left'}_shoulder")
+                    # For elbow exercises: check which elbow is more bent
+                    elif "elbow" in b_name and left_elbow and right_elbow:
+                        # Calculate elbow angles
+                        left_angle = _angle_between(pt("left_shoulder"), left_elbow, left_wrist) if pt("left_shoulder") and left_elbow and left_wrist else 180
+                        right_angle = _angle_between(pt("right_shoulder"), right_elbow, right_wrist) if pt("right_shoulder") and right_elbow and right_wrist else 180
+                        # Smaller angle = more bent = active
+                        use_side = "left" if left_angle < right_angle else "right"
+                
+                # Try with detected side
+                if "hip" in a_name:
+                    a = pt(f"{use_side}_hip")
+                elif "shoulder" in a_name and "elbow" not in b_name:
+                    # Shoulder exercise - use other shoulder or hip
+                    a = pt(f"{use_side}_hip") or pt(f"{'right' if use_side == 'left' else 'left'}_shoulder")
+                else:
+                    a = pt(f"{use_side}_{a_name.split('_')[-1]}")
+                
+                b = pt(f"{use_side}_{b_name.split('_')[-1]}")
+                c = pt(f"{use_side}_{c_name.split('_')[-1]}")
+                
+                if a and b and c:
+                    a_key = f"{use_side}_hip" if "hip" in a_name else (f"{'right' if use_side == 'left' else 'left'}_shoulder" if "shoulder" in a_name and "elbow" not in b_name else f"{use_side}_{a_name.split('_')[-1]}")
+                    joint_keys_used = (a_key, f"{use_side}_{b_name.split('_')[-1]}", f"{use_side}_{c_name.split('_')[-1]}")
+                else:
+                    # Fallback: use shoulder-line angle for shoulder exercises
+                    other_side = "right" if use_side == "left" else "left"
+                    a = pt(f"{other_side}_shoulder")
                     b = pt(f"{use_side}_shoulder")
                     c = pt(f"{use_side}_wrist")
-                    
                     if a and b and c:
-                        joint_keys_used = (f"{use_side}_hip" if "hip" in a_name else f"{'right' if use_side == 'left' else 'left'}_shoulder",
-                                          f"{use_side}_shoulder",
-                                          f"{use_side}_wrist")
-                    else:
-                        # Fallback: use shoulder-line angle
-                        other_side = "right" if use_side == "left" else "left"
-                        a = pt(f"{other_side}_shoulder")
-                        b = pt(f"{use_side}_shoulder")
-                        c = pt(f"{use_side}_wrist")
-                        if a and b and c:
-                            joint_keys_used = (f"{other_side}_shoulder", f"{use_side}_shoulder", f"{use_side}_wrist")
+                        joint_keys_used = (f"{other_side}_shoulder", f"{use_side}_shoulder", f"{use_side}_wrist")
 
             if a and b and c:
                 angle = _angle_between(a, b, c)

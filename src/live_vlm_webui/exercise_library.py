@@ -333,7 +333,7 @@ EXERCISES: list[Exercise] = [
         rep_start_phase="arms_extended",
         rep_end_phase="lowering",
         rom_targets=[
-            ROMTarget(joint="elbow", movement="flexion", side="both", target_angle=150),
+            ROMTarget(joint="elbow", movement="flexion", side="both", target_angle=40, min_angle=160),
         ],
         primary_joint=("left_shoulder", "left_elbow", "left_wrist"),
         rep_down_threshold=50,

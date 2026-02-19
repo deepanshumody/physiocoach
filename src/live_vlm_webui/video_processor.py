@@ -85,6 +85,7 @@ class VideoProcessorTrack(VideoStreamTrack):
         self._last_tracked_joint = None
         self._last_angle = None
         self._last_joint_keys = None
+        self._landmark_age = 0  # Frames since last landmark update
 
     async def recv(self):
         """
@@ -191,6 +192,7 @@ class VideoProcessorTrack(VideoStreamTrack):
                     self._last_tracked_joint = pose_result.get("tracked_joint")
                     self._last_angle = pose_result.get("angle")
                     self._last_joint_keys = pose_result.get("joint_keys")
+                    self._landmark_age = 0
                     
                     if self.pose_callback:
                         pose_result["camera_role"] = self.camera_role
@@ -210,6 +212,11 @@ class VideoProcessorTrack(VideoStreamTrack):
                                     })
                             pose_result["rom"] = rom_list
                         self.pose_callback(pose_result)
+                else:
+                    # No pose detected - age out landmarks after ~15 frames
+                    self._landmark_age += 1
+                    if self._landmark_age > 15:
+                        self._last_landmarks = None
 
             # VLM analysis (async, non-blocking, slow but smart)
             if need_vlm:
@@ -243,8 +250,12 @@ class VideoProcessorTrack(VideoStreamTrack):
                 if source_camera_id is None or source_camera_id == self.camera_id:
                     self.text_callback(response, metrics)
 
-            # Draw skeleton on guided exercises
-            if guided and img is not None and self._last_landmarks:
+            # Draw skeleton on EVERY frame during guided exercises
+            if guided and self._last_landmarks:
+                # Convert frame if we haven't already
+                if img is None:
+                    img = frame.to_ndarray(format="bgr24")
+                
                 rom_list = []
                 if cls._rom_targets and self._last_landmarks:
                     for rt in cls._rom_targets:
