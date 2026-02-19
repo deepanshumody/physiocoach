@@ -179,30 +179,11 @@ class VideoProcessorTrack(VideoStreamTrack):
 
                 # VLM analysis (async, non-blocking, slow but smart)
                 if need_vlm:
-                    pil_img_single = Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
-
-                    # Buffer frames for multi-frame sequence (coaching mode only)
-                    if self._coaching_active:
-                        self.frame_buffer.append(pil_img_single)
-                        if len(self.frame_buffer) > self.frame_buffer_size:
-                            self.frame_buffer.pop(0)
-
-                        # Tile frames horizontally into a single image for motion context
-                        if len(self.frame_buffer) >= 2:
-                            w, h = self.frame_buffer[0].size
-                            tiled = Image.new("RGB", (w * len(self.frame_buffer), h))
-                            for i, f in enumerate(self.frame_buffer):
-                                tiled.paste(f, (i * w, 0))
-                            pil_img = tiled
-                        else:
-                            pil_img = pil_img_single
-                    else:
-                        pil_img = pil_img_single
-
+                    pil_img = Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
                     prompt = self.coaching_prompt if (self._coaching_active and self.coaching_prompt) else None
                     asyncio.create_task(self.vlm_service.process_frame(pil_img, prompt=prompt))
                     if self.frame_count % 150 == 0:
-                        logger.info(f"Frame {self.frame_count}: Sending to VLM (interval={vlm_interval}, frames_in_seq={len(self.frame_buffer)})")
+                        logger.info(f"Frame {self.frame_count}: Sending to VLM (interval={vlm_interval})")
 
             # Get current response (may be old if VLM is still processing)
             response, is_processing = self.vlm_service.get_current_response()
