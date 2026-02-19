@@ -191,8 +191,8 @@ def draw_skeleton(frame: np.ndarray, landmarks: dict, tracked_joint=None,
             radius = 7 if is_tracked else 4
             cv2.circle(overlay, p, radius, color, -1, cv2.LINE_AA)
     
-    # Draw angle at tracked joint
-    if tracked_joint and angle is not None:
+    # Draw angle at tracked joint (only if angle is valid)
+    if tracked_joint and angle is not None and angle > 0:
         a, b, c = tracked_joint
         bi = (int(b[0]), int(b[1]))
         ai = (int(a[0]), int(a[1]))
@@ -215,7 +215,7 @@ def draw_skeleton(frame: np.ndarray, landmarks: dict, tracked_joint=None,
                 start, end = end, start + 360
             cv2.ellipse(overlay, bi, (arc_r, arc_r), 0, start, end, (0, 255, 0), 3, cv2.LINE_AA)
         
-        # Angle label - show actual angle value
+        # Angle label - show clean integer
         label = f"{int(round(angle))}\u00b0"
         tx, ty = bi[0] + 14, bi[1] - 14
         cv2.putText(overlay, label, (tx + 1, ty + 1), cv2.FONT_HERSHEY_SIMPLEX, 0.8,
