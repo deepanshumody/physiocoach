@@ -718,8 +718,8 @@ function onSessionStarted(data) {
     coachHistory.innerHTML = '';
     coachingText.textContent = 'Session started! Begin your exercise -- I\'m watching.';
 
-    const showReps = guidedMode && data.exercise && data.exercise.primary_joint;
-    repSection.classList.toggle('visible', showReps);
+    // Always show rep counter during any active session
+    repSection.classList.add('visible');
 
     startBtn.style.display = 'none'; pauseBtn.style.display = 'flex'; endBtn.style.display = 'flex';
     sessionStartTime = Date.now();
