@@ -1,5 +1,5 @@
 """
-Session Manager for PT Rehab Coach
+Session Manager for PT Physio Coach
 Handles session persistence (SQLite), rep counting state machine, and progress tracking.
 """
 

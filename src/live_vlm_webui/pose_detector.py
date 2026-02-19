@@ -1,5 +1,5 @@
 """
-Pose Detector for PT Rehab Coach
+Pose Detector for PT Physio Coach
 Uses MediaPipe Pose to extract body landmarks, compute joint angles,
 and count reps via angle thresholds -- all on CPU at ~30fps.
 """

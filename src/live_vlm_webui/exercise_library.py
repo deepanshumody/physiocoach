@@ -1,5 +1,5 @@
 """
-Exercise Library for PT Rehab Coach
+Exercise Library for PT Physio Coach
 Defines exercises with form criteria, phase definitions, and VLM prompt templates.
 """
 
