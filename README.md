@@ -6,6 +6,10 @@ PhysioCoach watches you exercise through your webcam, analyzes your form using a
 
 Built at the **Dell × NVIDIA Hackathon 2026** by NYU students. Reached **Top-8** out of 30 teams.
 
+## Demo
+
+![PhysioCoach Demo](demo.gif)
+
 ---
 
 ## What It Does
