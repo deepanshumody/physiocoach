@@ -4,7 +4,7 @@
 
 PhysioCoach watches you exercise through your webcam, analyzes your form using a local VLM, counts your reps using pose estimation, and speaks coaching cues aloud in real time. Everything runs on-device.
 
-Built at the **Dell × NVIDIA Hackathon 2026** by NYU students. Reached **Top-8** out of 30 teams.
+Built at the **Dell × NVIDIA Hackathon 2026** by NYU students. Reached **Top-8** out of 30 teams from NYU CDS.
 
 ## Demo
 
