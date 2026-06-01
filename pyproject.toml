@@ -2,33 +2,41 @@
 requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
+# PhysioCoach is built on NVIDIA's open-source live-vlm-webui (Apache-2.0):
+#   https://github.com/nvidia-ai-iot/live-vlm-webui
+# The PhysioCoach team added the physical-therapy layer on top of that base.
+# The import package is still named `live_vlm_webui` (kept to preserve the
+# upstream module paths and history); the distribution is `physiocoach`.
 [project]
-name = "live-vlm-webui"
-version = "0.2.1"
-description = "Real-time Vision Language Model interaction web interface"
+name = "physiocoach"
+version = "0.1.0"
+description = "Real-time AI physical-therapy coaching with local Vision Language Models and MediaPipe pose estimation"
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "Apache-2.0"}
 authors = [
-    {name = "NVIDIA Corporation"}
+    {name = "Deepanshu Mody"},
+    {name = "Anagha Palandye"},
+    {name = "Taruni Nugooru"},
 ]
 keywords = [
-    "vision",
-    "ai",
+    "physical-therapy",
+    "rehabilitation",
+    "pose-estimation",
+    "mediapipe",
     "vlm",
     "vision-language-model",
-    "webui",
-    "nvidia",
+    "ai-coaching",
     "real-time",
     "webrtc",
     "webcam",
     "ollama",
-    "vllm",
 ]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
     "Intended Audience :: Science/Research",
+    "Intended Audience :: Healthcare Industry",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
     "Topic :: Multimedia :: Video",
     "License :: OSI Approved :: Apache Software License",
@@ -66,15 +74,14 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/nvidia-ai-iot/live-vlm-webui"
-Documentation = "https://github.com/nvidia-ai-iot/live-vlm-webui/tree/main/docs"
-Repository = "https://github.com/nvidia-ai-iot/live-vlm-webui"
-Issues = "https://github.com/nvidia-ai-iot/live-vlm-webui/issues"
-Changelog = "https://github.com/nvidia-ai-iot/live-vlm-webui/releases"
+Homepage = "https://github.com/deepanshumody/physiocoach"
+Repository = "https://github.com/deepanshumody/physiocoach"
+Issues = "https://github.com/deepanshumody/physiocoach/issues"
+"Built on" = "https://github.com/nvidia-ai-iot/live-vlm-webui"
 
 [project.scripts]
-live-vlm-webui = "live_vlm_webui.server:main"
-live-vlm-webui-stop = "live_vlm_webui.server:stop"
+physiocoach = "live_vlm_webui.server:main"
+physiocoach-stop = "live_vlm_webui.server:stop"
 
 [tool.setuptools.packages.find]
 where = ["src"]

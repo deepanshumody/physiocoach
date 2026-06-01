@@ -1,6 +1,9 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
+# Modifications copyright (c) 2026 PhysioCoach team
+# (Deepanshu Mody, Anagha Palandye, Taruni Nugooru).
+#
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
@@ -14,25 +17,30 @@
 # limitations under the License.
 
 """
-Live VLM WebUI - Real-time Vision Language Model interaction web interface.
+PhysioCoach - Real-time AI physical-therapy coaching.
 
-A universal web interface for streaming webcam feeds to Vision Language Models
-with real-time AI analysis and system monitoring.
+Built on NVIDIA's open-source live-vlm-webui (Apache-2.0), which provides the
+WebRTC/VLM streaming server, GPU monitoring, and RTSP support. PhysioCoach adds
+the physical-therapy layer: MediaPipe pose estimation, rep counting, range-of-
+motion measurement, an exercise library, and a real-time coaching pipeline.
 """
 
-__version__ = "0.2.1"
-__author__ = "NVIDIA Corporation"
+__version__ = "0.1.0"
+__author__ = "PhysioCoach team (Deepanshu Mody, Anagha Palandye, Taruni Nugooru)"
 __license__ = "Apache-2.0"
 
 from . import server
 from . import video_processor
 from . import gpu_monitor
 from . import vlm_service
-from . import rom_service
 from . import exercise_library
 from . import session_manager
 
 __all__ = [
-    "server", "video_processor", "gpu_monitor", "vlm_service",
-    "rom_service", "exercise_library", "session_manager",
+    "server",
+    "video_processor",
+    "gpu_monitor",
+    "vlm_service",
+    "exercise_library",
+    "session_manager",
 ]

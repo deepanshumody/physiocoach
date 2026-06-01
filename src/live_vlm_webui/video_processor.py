@@ -1,6 +1,10 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
+# Modifications copyright (c) 2026 PhysioCoach team
+# (Deepanshu Mody, Anagha Palandye, Taruni Nugooru). Adapted to run the VLM
+# coaching and MediaPipe pose/ROM pipelines in parallel per frame.
+#
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
@@ -29,7 +33,7 @@ import time
 import av
 
 from .vlm_service import VLMService
-from .pose_detector import PoseDetector, draw_skeleton, compute_rom_angle, get_tracked_joint_for_display
+from .pose_detector import PoseDetector, draw_skeleton, compute_rom_angle
 
 # Enable swscaler warnings to track hardware acceleration status
 # TODO: Implement hardware-accelerated color space conversion on Jetson using NVMM/VPI
@@ -61,8 +65,14 @@ class VideoProcessorTrack(VideoStreamTrack):
     # ROM targets for current exercise
     _rom_targets = []
 
-    def __init__(self, track: VideoStreamTrack, vlm_service: VLMService,
-                 text_callback=None, pose_callback=None, camera_role: str = "front"):
+    def __init__(
+        self,
+        track: VideoStreamTrack,
+        vlm_service: VLMService,
+        text_callback=None,
+        pose_callback=None,
+        camera_role: str = "front",
+    ):
         super().__init__()
         self.track = track
         self.vlm_service = vlm_service
@@ -74,8 +84,8 @@ class VideoProcessorTrack(VideoStreamTrack):
         self.coaching_prompt = None  # Per-track prompt set by server on session start
         self.pose_detector = PoseDetector()
         self.last_frame: Optional[np.ndarray] = None
-        self.frame_buffer: list = []   # Buffer of recent frames for multi-frame VLM input
-        self.frame_buffer_size = 5     # Number of frames to send as sequence
+        self.frame_buffer: list = []  # Buffer of recent frames for multi-frame VLM input
+        self.frame_buffer_size = 5  # Number of frames to send as sequence
         self.frame_count = 0
         self.dropped_frames = 0
         self.first_frame_pts = None  # Track first frame PTS to calculate relative time
@@ -167,8 +177,12 @@ class VideoProcessorTrack(VideoStreamTrack):
             vlm_interval = cls.coaching_frame_interval if coaching else cls.process_every_n_frames
 
             # Determine what work to do this frame
-            need_vlm = (self.frame_count % vlm_interval == 0)
-            need_pose = coaching and self.pose_detector.available and (self.frame_count % cls.pose_every_n_frames == 0)
+            need_vlm = self.frame_count % vlm_interval == 0
+            need_pose = (
+                coaching
+                and self.pose_detector.available
+                and (self.frame_count % cls.pose_every_n_frames == 0)
+            )
             need_conversion = need_vlm or need_pose or guided or (self.frame_count == 1)
 
             img = None
@@ -193,23 +207,27 @@ class VideoProcessorTrack(VideoStreamTrack):
                     self._last_angle = pose_result.get("angle")
                     self._last_joint_keys = pose_result.get("joint_keys")
                     self._landmark_age = 0
-                    
+
                     if self.pose_callback:
                         pose_result["camera_role"] = self.camera_role
                         # Compute ROM for all targets
                         if self._last_landmarks and cls._rom_targets:
                             rom_list = []
                             for rt in cls._rom_targets:
-                                angle = compute_rom_angle(self._last_landmarks, rt.joint, rt.movement, rt.side)
+                                angle = compute_rom_angle(
+                                    self._last_landmarks, rt.joint, rt.movement, rt.side
+                                )
                                 if angle is not None:
-                                    rom_list.append({
-                                        "joint": rt.joint,
-                                        "movement": rt.movement,
-                                        "side": rt.side,
-                                        "angle": round(angle, 1),
-                                        "target": rt.target_angle,
-                                        "label": f"{rt.joint}_{rt.movement}",
-                                    })
+                                    rom_list.append(
+                                        {
+                                            "joint": rt.joint,
+                                            "movement": rt.movement,
+                                            "side": rt.side,
+                                            "angle": round(angle, 1),
+                                            "target": rt.target_angle,
+                                            "label": f"{rt.joint}_{rt.movement}",
+                                        }
+                                    )
                             pose_result["rom"] = rom_list
                         self.pose_callback(pose_result)
                 else:
@@ -230,14 +248,20 @@ class VideoProcessorTrack(VideoStreamTrack):
 
             if need_vlm and img is not None:
                 pil_img = Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
-                prompt = self.coaching_prompt if (self._coaching_active and self.coaching_prompt) else None
+                prompt = (
+                    self.coaching_prompt
+                    if (self._coaching_active and self.coaching_prompt)
+                    else None
+                )
                 asyncio.create_task(
                     self.vlm_service.process_frame(
                         pil_img, prompt=prompt, source_camera_id=self.camera_id
                     )
                 )
                 if self.frame_count % 150 == 0:
-                    logger.info(f"Frame {self.frame_count}: Sending to VLM (interval={vlm_interval})")
+                    logger.info(
+                        f"Frame {self.frame_count}: Sending to VLM (interval={vlm_interval})"
+                    )
 
             # Get current response (may be old if VLM is still processing)
             response, is_processing, source_camera_id = self.vlm_service.get_current_response()
@@ -255,19 +279,24 @@ class VideoProcessorTrack(VideoStreamTrack):
                 # Convert frame if we haven't already
                 if img is None:
                     img = frame.to_ndarray(format="bgr24")
-                
+
                 rom_list = []
                 if cls._rom_targets and self._last_landmarks:
                     for rt in cls._rom_targets:
-                        angle = compute_rom_angle(self._last_landmarks, rt.joint, rt.movement, rt.side)
+                        angle = compute_rom_angle(
+                            self._last_landmarks, rt.joint, rt.movement, rt.side
+                        )
                         if angle is not None:
-                            rom_list.append({
-                                "angle": round(angle, 1),
-                                "label": f"{rt.joint}_{rt.movement}",
-                            })
-                
+                            rom_list.append(
+                                {
+                                    "angle": round(angle, 1),
+                                    "label": f"{rt.joint}_{rt.movement}",
+                                }
+                            )
+
                 img = draw_skeleton(
-                    img, self._last_landmarks,
+                    img,
+                    self._last_landmarks,
                     tracked_joint=self._last_tracked_joint,
                     angle=self._last_angle,
                     joint_keys=self._last_joint_keys,

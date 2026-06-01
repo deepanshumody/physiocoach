@@ -1,6 +1,10 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
+# Modifications copyright (c) 2026 PhysioCoach team
+# (Deepanshu Mody, Anagha Palandye, Taruni Nugooru). Adapted for structured
+# physical-therapy coaching prompts and JSON feedback parsing.
+#
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
@@ -132,7 +136,10 @@ class VLMService:
 
             # Call API
             response = await self.client.chat.completions.create(
-                model=self.model, messages=messages, max_tokens=self.max_tokens, temperature=self.temperature
+                model=self.model,
+                messages=messages,
+                max_tokens=self.max_tokens,
+                temperature=self.temperature,
             )
 
             # Calculate latency
@@ -207,7 +214,7 @@ class VLMService:
         """Exit coaching mode."""
         self._coaching_prompt = None
         self._coaching_active = False
-        self.max_tokens = getattr(self, '_saved_max_tokens', 512)
+        self.max_tokens = getattr(self, "_saved_max_tokens", 512)
         self.temperature = 0.7
         logger.info("Coaching mode deactivated")
 
@@ -216,7 +223,10 @@ class VLMService:
         return self._coaching_active
 
     async def process_frame(
-        self, image: Image.Image, prompt: Optional[str] = None, source_camera_id: Optional[int] = None
+        self,
+        image: Image.Image,
+        prompt: Optional[str] = None,
+        source_camera_id: Optional[int] = None,
     ) -> None:
         """
         Process a frame asynchronously. Updates self.current_response when done.

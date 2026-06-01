@@ -1,6 +1,10 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
+# Modifications copyright (c) 2026 PhysioCoach team
+# (Deepanshu Mody, Anagha Palandye, Taruni Nugooru). Adapted for real-time
+# physical-therapy coaching (pose tracking, rep counting, dual camera).
+#
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
@@ -41,7 +45,7 @@ from .vlm_service import VLMService
 from .video_processor import VideoProcessorTrack
 from .gpu_monitor import create_monitor
 from .rtsp_track import RTSPVideoTrack
-from .exercise_library import get_exercise, get_all_exercises, EXERCISE_MAP
+from .exercise_library import get_exercise, get_all_exercises
 from .session_manager import SessionManager
 from .vlm_service import parse_json_response
 
@@ -119,7 +123,7 @@ def _build_coaching_prompt(exercise_id: str) -> str:
         f"ALSO estimate these joint angles in degrees: {angles_str}. "
         f"Report the patient's ACTUAL current angle even if form is wrong. "
         f"Include each angle in your response like: "
-        f"\"[ANGLE:{ex.rom_targets[0].joint}_{ex.rom_targets[0].movement}=XX]\". "
+        f'"[ANGLE:{ex.rom_targets[0].joint}_{ex.rom_targets[0].movement}=XX]". '
         f"Tell the patient how many more degrees they need."
     )
 
@@ -127,6 +131,7 @@ def _build_coaching_prompt(exercise_id: str) -> str:
 def _extract_rom_from_text(text: str) -> list:
     """Parse ROM angles from VLM coaching text using [ANGLE:joint_movement=XX] tags."""
     import re as _re
+
     if not active_exercise_id:
         return []
     ex = get_exercise(active_exercise_id)
@@ -158,19 +163,21 @@ def _extract_rom_from_text(text: str) -> list:
             status, color = "Keep Going", "#ef4444"
             guidance = f"You need {remaining:.0f}\u00b0 more \u2014 take it slow, keep pushing"
 
-        angles.append({
-            "joint": rt.joint,
-            "movement": rt.movement,
-            "side": rt.side,
-            "angle": round(angle, 1),
-            "target": target,
-            "remaining": round(remaining, 1),
-            "percent": round(pct, 1),
-            "status": status,
-            "color": color,
-            "guidance": guidance,
-            "label": f"{rt.joint} {rt.movement}".replace("_", " "),
-        })
+        angles.append(
+            {
+                "joint": rt.joint,
+                "movement": rt.movement,
+                "side": rt.side,
+                "angle": round(angle, 1),
+                "target": target,
+                "remaining": round(remaining, 1),
+                "percent": round(pct, 1),
+                "status": status,
+                "color": color,
+                "guidance": guidance,
+                "label": f"{rt.joint} {rt.movement}".replace("_", " "),
+            }
+        )
     return angles
 
 
@@ -493,10 +500,17 @@ async def websocket_handler(request):
                         global active_exercise_id
                         active_exercise_id = exercise_id
                         if ex:
-                            await ws.send_json({"type": "exercise_selected", "exercise": ex.to_dict()})
+                            await ws.send_json(
+                                {"type": "exercise_selected", "exercise": ex.to_dict()}
+                            )
                             logger.info(f"Exercise selected: {ex.name}")
                         else:
-                            await ws.send_json({"type": "exercise_selected", "exercise": {"id": "general", "name": "General Coach"}})
+                            await ws.send_json(
+                                {
+                                    "type": "exercise_selected",
+                                    "exercise": {"id": "general", "name": "General Coach"},
+                                }
+                            )
 
                     elif data.get("type") == "start_exercise_session":
                         global _last_coaching_text_by_camera, _last_vlm_response
@@ -513,7 +527,9 @@ async def websocket_handler(request):
                         exercise_id = data.get("exercise_id") or active_exercise_id or "general"
                         ex = get_exercise(exercise_id)
                         if not ex:
-                            logger.warning(f"Unknown exercise_id '{exercise_id}', falling back to general")
+                            logger.warning(
+                                f"Unknown exercise_id '{exercise_id}', falling back to general"
+                            )
                             exercise_id = "general"
                             ex = get_exercise("general")
                         active_exercise_id = exercise_id
@@ -532,10 +548,12 @@ async def websocket_handler(request):
                         # Assign per-camera prompts based on connected slots
                         dual_camera_mode = len(camera_slots) >= 2
                         for pt in active_processor_tracks:
-                            cam_id = getattr(pt, 'camera_id', 1)
+                            cam_id = getattr(pt, "camera_id", 1)
                             pt.fair_dual_camera_vlm = dual_camera_mode
                             if dual_camera_mode:
-                                view_hint = FRONT_CAMERA_PROMPT if cam_id == 1 else SIDE_CAMERA_PROMPT
+                                view_hint = (
+                                    FRONT_CAMERA_PROMPT if cam_id == 1 else SIDE_CAMERA_PROMPT
+                                )
                                 if exercise_id == "general":
                                     # In general mode, each camera can use its own view-specific prompt.
                                     pt.coaching_prompt = view_hint
@@ -547,18 +565,26 @@ async def websocket_handler(request):
                                         "Keep the same JSON schema exactly."
                                     )
                             else:
-                                pt.coaching_prompt = ex.build_vlm_prompt() if exercise_id != "general" else DEFAULT_COACHING_PROMPT
+                                pt.coaching_prompt = (
+                                    ex.build_vlm_prompt()
+                                    if exercise_id != "general"
+                                    else DEFAULT_COACHING_PROMPT
+                                )
 
                         # Configure MediaPipe rep counting only for specific exercises
                         if ex and ex.primary_joint:
                             VideoProcessorTrack._guided_exercise = True
-                            VideoProcessorTrack._rom_targets = ex.rom_targets if ex.rom_targets else []
+                            VideoProcessorTrack._rom_targets = (
+                                ex.rom_targets if ex.rom_targets else []
+                            )
                             for pt in active_processor_tracks:
                                 if pt.pose_detector.available:
                                     pt.pose_detector.configure_exercise(
                                         ex.primary_joint, ex.rep_down_threshold, ex.rep_up_threshold
                                     )
-                            logger.info(f"Pose rep counting configured: joint={ex.primary_joint}, ROM targets={len(ex.rom_targets)}")
+                            logger.info(
+                                f"Pose rep counting configured: joint={ex.primary_joint}, ROM targets={len(ex.rom_targets)}"
+                            )
                         else:
                             VideoProcessorTrack._guided_exercise = False
                             VideoProcessorTrack._rom_targets = []
@@ -566,7 +592,9 @@ async def websocket_handler(request):
 
                         sid = await session_manager.start_session(exercise_id)
                         ex_info = ex.to_dict() if ex else {"id": "general", "name": "General Coach"}
-                        await ws.send_json({"type": "session_started", "session_id": sid, "exercise": ex_info})
+                        await ws.send_json(
+                            {"type": "session_started", "session_id": sid, "exercise": ex_info}
+                        )
                         logger.info(f"Session {sid} started: {ex_info.get('name', exercise_id)}")
 
                     elif data.get("type") == "pause_session":
@@ -614,7 +642,9 @@ async def websocket_handler(request):
                             frame_img = None
                             for pt in active_processor_tracks:
                                 if pt.last_frame is not None:
-                                    frame_img = Image.fromarray(cv2.cvtColor(pt.last_frame, cv2.COLOR_BGR2RGB))
+                                    frame_img = Image.fromarray(
+                                        cv2.cvtColor(pt.last_frame, cv2.COLOR_BGR2RGB)
+                                    )
                                     break
                             if frame_img:
                                 prompt = (
@@ -631,7 +661,9 @@ async def websocket_handler(request):
                                 answer = await vlm_service.analyze_image(
                                     Image.new("RGB", (100, 100), (200, 200, 200)), prompt
                                 )
-                            await ws.send_json({"type": "chat_response", "question": question, "answer": answer})
+                            await ws.send_json(
+                                {"type": "chat_response", "question": question, "answer": answer}
+                            )
                             logger.info(f"Chat Q: {question[:60]} -> A: {answer[:80]}")
 
                     elif data.get("type") == "update_max_latency":
@@ -784,6 +816,7 @@ async def _emit_combined_feedback_after_delay():
         if _pending_feedback_by_camera:
             _schedule_feedback_combine()
 
+
 def broadcast_text_update(text: str, metrics: dict, camera_id: int = 1):
     """Broadcast text update and metrics to all connected WebSocket clients"""
     global _last_coaching_text_by_camera, _last_vlm_response
@@ -791,7 +824,14 @@ def broadcast_text_update(text: str, metrics: dict, camera_id: int = 1):
         return
 
     last_for_camera = _last_coaching_text_by_camera.get(camera_id, "")
-    if vlm_service and vlm_service.coaching_active and text and text != last_for_camera and not text.startswith("Error:") and text != "Initializing...":
+    if (
+        vlm_service
+        and vlm_service.coaching_active
+        and text
+        and text != last_for_camera
+        and not text.startswith("Error:")
+        and text != "Initializing..."
+    ):
         _last_coaching_text_by_camera[camera_id] = text
 
         display_text = text
@@ -804,7 +844,10 @@ def broadcast_text_update(text: str, metrics: dict, camera_id: int = 1):
                         if session_manager and session_manager.active:
                             asyncio.create_task(_record_frame_safe(parsed))
                     else:
-                        display_text = parsed.get("feedback") or "I can't see the exercise clearly. Please adjust your position."
+                        display_text = (
+                            parsed.get("feedback")
+                            or "I can't see the exercise clearly. Please adjust your position."
+                        )
             else:
                 # General exercise (non-JSON): record text feedback
                 if session_manager and session_manager.active:
@@ -876,17 +919,19 @@ def _on_pose_frame(pose_result: dict):
     role = pose_result.get("camera_role", "front")
     rom = pose_result.get("rom", [])
 
-    _broadcast_json({
-        "type": "pose_update",
-        "camera_role": role,
-        "angle": angle,
-        "total_reps": total_reps,
-        "rep_completed": rep_completed,
-    })
+    _broadcast_json(
+        {
+            "type": "pose_update",
+            "camera_role": role,
+            "angle": angle,
+            "total_reps": total_reps,
+            "rep_completed": rep_completed,
+        }
+    )
 
     if rep_completed:
         _broadcast_json({"type": "rep_counted", "camera_role": role, "total_reps": total_reps})
-    
+
     if rom:
         _broadcast_json({"type": "rom_update", "rom": rom})
 
@@ -921,12 +966,17 @@ async def offer_viewer(request):
     other_track = camera_tracks.get(other_slot)
 
     if not other_track:
-        return web.Response(status=404, content_type="application/json",
-                            text=json.dumps({"error": "Other camera not connected yet"}))
+        return web.Response(
+            status=404,
+            content_type="application/json",
+            text=json.dumps({"error": "Other camera not connected yet"}),
+        )
 
-    config = RTCConfiguration(iceServers=[
-        RTCIceServer(urls=["stun:stun.l.google.com:19302"]),
-    ])
+    config = RTCConfiguration(
+        iceServers=[
+            RTCIceServer(urls=["stun:stun.l.google.com:19302"]),
+        ]
+    )
     viewer_pc = RTCPeerConnection(configuration=config)
     pcs.add(viewer_pc)
 
@@ -944,10 +994,15 @@ async def offer_viewer(request):
     await viewer_pc.setLocalDescription(answer)
 
     logger.info(f"Viewer PC created: Camera {requester_camera_id} will now see Camera {other_slot}")
-    return web.Response(content_type="application/json", text=json.dumps({
-        "sdp": viewer_pc.localDescription.sdp,
-        "type": viewer_pc.localDescription.type,
-    }))
+    return web.Response(
+        content_type="application/json",
+        text=json.dumps(
+            {
+                "sdp": viewer_pc.localDescription.sdp,
+                "type": viewer_pc.localDescription.type,
+            }
+        ),
+    )
     """Background task to periodically collect and broadcast GPU stats"""
     global gpu_monitor
 
@@ -1012,8 +1067,11 @@ async def renegotiate_answer(request):
 
     pc = camera_slots.get(camera_id)
     if not pc:
-        return web.Response(status=404, content_type="application/json",
-                            text=json.dumps({"error": "Camera slot not found"}))
+        return web.Response(
+            status=404,
+            content_type="application/json",
+            text=json.dumps({"error": "Camera slot not found"}),
+        )
     try:
         # Set the browser's offer as remote description
         await pc.setRemoteDescription(RTCSessionDescription(sdp=sdp, type=sdp_type))
@@ -1029,14 +1087,27 @@ async def renegotiate_answer(request):
         await pc.setLocalDescription(answer)
         logger.info(f"Camera {camera_id}: Renegotiation complete")
 
-        _broadcast_json({"type": "camera_connected", "camera_id": camera_id, "occupied": list(camera_slots.keys())})
-        return web.Response(content_type="application/json", text=json.dumps({
-            "sdp": pc.localDescription.sdp,
-            "type": pc.localDescription.type,
-        }))
+        _broadcast_json(
+            {
+                "type": "camera_connected",
+                "camera_id": camera_id,
+                "occupied": list(camera_slots.keys()),
+            }
+        )
+        return web.Response(
+            content_type="application/json",
+            text=json.dumps(
+                {
+                    "sdp": pc.localDescription.sdp,
+                    "type": pc.localDescription.type,
+                }
+            ),
+        )
     except Exception as e:
         logger.error(f"Camera {camera_id}: Renegotiation failed: {e}")
-        return web.Response(status=500, content_type="application/json", text=json.dumps({"error": str(e)}))
+        return web.Response(
+            status=500, content_type="application/json", text=json.dumps({"error": str(e)})
+        )
 
 
 async def offer(request):
@@ -1075,7 +1146,13 @@ async def offer(request):
     camera_slots[assigned_slot] = pc
 
     # Notify all clients about the new camera connection
-    _broadcast_json({"type": "camera_connected", "camera_id": assigned_slot, "occupied": list(camera_slots.keys())})
+    _broadcast_json(
+        {
+            "type": "camera_connected",
+            "camera_id": assigned_slot,
+            "occupied": list(camera_slots.keys()),
+        }
+    )
 
     # Store RTSP track for cleanup
     rtsp_cleanup_track = None
@@ -1097,7 +1174,13 @@ async def offer(request):
                 camera_websockets.pop(slot, None)
                 pending_renegotiation_tracks.pop(slot, None)
                 logger.info(f"Camera slot {slot} freed")
-                _broadcast_json({"type": "camera_disconnected", "camera_id": slot, "occupied": list(camera_slots.keys())})
+                _broadcast_json(
+                    {
+                        "type": "camera_disconnected",
+                        "camera_id": slot,
+                        "occupied": list(camera_slots.keys()),
+                    }
+                )
 
     @pc.on("iceconnectionstatechange")
     async def on_iceconnectionstatechange():
@@ -1113,6 +1196,7 @@ async def offer(request):
     def make_camera_callback(cam_id):
         def _cb(text, metrics):
             broadcast_text_update(text, metrics, camera_id=cam_id)
+
         return _cb
 
     camera_callback = make_camera_callback(slot)
@@ -1131,7 +1215,8 @@ async def offer(request):
             relayed_rtsp = relay.subscribe(rtsp_track)
 
             processor_track = VideoProcessorTrack(
-                relayed_rtsp, vlm_service,
+                relayed_rtsp,
+                vlm_service,
                 text_callback=camera_callback,
                 pose_callback=_on_pose_frame,
                 camera_role=camera_role,
@@ -1158,7 +1243,8 @@ async def offer(request):
             if track.kind == "video":
                 # Create processor track with camera-aware callback + pose detection from deep
                 processor_track = VideoProcessorTrack(
-                    relay.subscribe(track), vlm_service,
+                    relay.subscribe(track),
+                    vlm_service,
                     text_callback=camera_callback,
                     pose_callback=_on_pose_frame,
                     camera_role=camera_role,
@@ -1178,13 +1264,16 @@ async def offer(request):
                 other_track = camera_tracks.get(other_slot)
 
                 if other_pc and other_track:
-                    logger.info(f"Both cameras connected — waiting for both WebSockets then triggering viewer PCs")
+                    logger.info(
+                        "Both cameras connected — waiting for both WebSockets then triggering viewer PCs"
+                    )
                     _slot = slot
                     _other_slot = other_slot
                     _pc = pc
                     _other_pc = other_pc
                     _processor_track = processor_track
                     _other_track = other_track
+
                     async def wait_and_renegotiate():
                         # Wait until BOTH camera WebSockets are registered (up to 60s)
                         for _ in range(120):
@@ -1192,11 +1281,18 @@ async def offer(request):
                                 break
                             await asyncio.sleep(0.5)
                         else:
-                            logger.warning(f"WebSockets for slots {_slot}/{_other_slot} never both registered, skipping")
+                            logger.warning(
+                                f"WebSockets for slots {_slot}/{_other_slot} never both registered, skipping"
+                            )
                             return
-                        logger.info(f"Both WebSockets ready — triggering viewer PCs for slots {_slot} and {_other_slot}")
+                        logger.info(
+                            f"Both WebSockets ready — triggering viewer PCs for slots {_slot} and {_other_slot}"
+                        )
                         await _renegotiate(_pc, _slot, relay.subscribe(_other_track))
-                        await _renegotiate(_other_pc, _other_slot, relay.subscribe(_processor_track))
+                        await _renegotiate(
+                            _other_pc, _other_slot, relay.subscribe(_processor_track)
+                        )
+
                     asyncio.create_task(wait_and_renegotiate())
 
             @track.on("ended")
@@ -1215,11 +1311,13 @@ async def offer(request):
 
     return web.Response(
         content_type="application/json",
-        text=json.dumps({
-            "sdp": pc.localDescription.sdp,
-            "type": pc.localDescription.type,
-            "camera_id": slot,
-        }),
+        text=json.dumps(
+            {
+                "sdp": pc.localDescription.sdp,
+                "type": pc.localDescription.type,
+                "camera_id": slot,
+            }
+        ),
     )
 
 
@@ -1265,7 +1363,8 @@ async def rtsp_start(request):
 
         # Create processor track (same as WebRTC path)
         processor_track = VideoProcessorTrack(
-            rtsp_track, vlm_service,
+            rtsp_track,
+            vlm_service,
             text_callback=broadcast_text_update,
             pose_callback=_on_pose_frame,
         )
@@ -1376,9 +1475,7 @@ async def rtsp_status(request):
 
 async def dashboard(request):
     """Serve the progress dashboard page"""
-    content = open(
-        os.path.join(os.path.dirname(__file__), "static", "dashboard.html"), "r"
-    ).read()
+    content = open(os.path.join(os.path.dirname(__file__), "static", "dashboard.html"), "r").read()
     return web.Response(content_type="text/html", text=content)
 
 

@@ -79,3 +79,12 @@ tests/e2e/.test-data/
 cert.pem
 key.pem
 *.pem
+
+# Local tooling / session artifacts
+.claude/
+
+# Local demo recordings (use demo.gif in the README instead)
+*.mov
+
+# SQLite session database (created at runtime)
+*.db

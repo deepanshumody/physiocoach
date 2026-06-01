@@ -1,13 +1,17 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 PhysioCoach team
+# (Deepanshu Mody, Anagha Palandye, Taruni Nugooru). All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Original PhysioCoach module (not part of the upstream live-vlm-webui project).
+
 """
-Session Manager for PT Physio Coach
+Session Manager for PhysioCoach
 Handles session persistence (SQLite), rep counting state machine, and progress tracking.
 """
 
-import asyncio
 import json
 import logging
 import os
-import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
@@ -211,7 +215,13 @@ class SessionManager:
 
         await self._db.execute(
             "UPDATE sessions SET end_time=?, total_reps=?, avg_form_score=?, corrections_summary=?, status='completed' WHERE id=?",
-            (now, total_reps, round(avg_score, 1), json.dumps(self._all_corrections), self._active_session_id),
+            (
+                now,
+                total_reps,
+                round(avg_score, 1),
+                json.dumps(self._all_corrections),
+                self._active_session_id,
+            ),
         )
         await self._db.commit()
 
@@ -277,9 +287,11 @@ class SessionManager:
                 eid: {
                     "sessions": sess_list,
                     "total_reps": sum(s["total_reps"] for s in sess_list),
-                    "avg_form_score": round(
-                        sum(s["avg_form_score"] for s in sess_list) / len(sess_list), 1
-                    ) if sess_list else 0,
+                    "avg_form_score": (
+                        round(sum(s["avg_form_score"] for s in sess_list) / len(sess_list), 1)
+                        if sess_list
+                        else 0
+                    ),
                 }
                 for eid, sess_list in by_exercise.items()
             },

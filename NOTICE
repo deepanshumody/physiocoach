@@ -1,0 +1,17 @@
+PhysioCoach
+Copyright (c) 2026 Deepanshu Mody, Anagha Palandye, Taruni Nugooru
+
+This product is built on Live VLM WebUI:
+    https://github.com/nvidia-ai-iot/live-vlm-webui
+    Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES.
+    Licensed under the Apache License, Version 2.0.
+
+Live VLM WebUI provides the WebRTC + Vision Language Model streaming server,
+GPU/system monitoring, and RTSP camera support. The PhysioCoach team built the
+physical-therapy layer on top of it: MediaPipe pose estimation, joint-angle rep
+counting, range-of-motion (ROM) measurement, the exercise library, the
+dual-camera pipeline, and the real-time coaching/feedback loop.
+
+Portions of this software remain subject to the NVIDIA copyright notices and the
+Apache License, Version 2.0, retained in the individual source-file headers and
+in the LICENSE file at the root of this repository.

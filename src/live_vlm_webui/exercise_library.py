@@ -1,5 +1,11 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 PhysioCoach team
+# (Deepanshu Mody, Anagha Palandye, Taruni Nugooru). All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Original PhysioCoach module (not part of the upstream live-vlm-webui project).
+
 """
-Exercise Library for PT Rehab Coach
+Exercise Library for PhysioCoach
 Defines exercises with form criteria, phase definitions, and VLM prompt templates.
 """
 
@@ -10,6 +16,7 @@ from typing import Optional
 @dataclass
 class ROMTarget:
     """ROM measurement target for an exercise."""
+
     joint: str
     movement: str
     side: str
@@ -48,9 +55,8 @@ class Exercise:
                 f"{rt.joint} {rt.movement} ({rt.side} side): target {rt.target_angle}\u00b0"
             )
         targets_str = "; ".join(targets_desc)
-        rom_fields = ', '.join(
-            f'"{rt.joint}_{rt.movement}_angle": <degrees>'
-            for rt in self.rom_targets
+        rom_fields = ", ".join(
+            f'"{rt.joint}_{rt.movement}_angle": <degrees>' for rt in self.rom_targets
         )
         return (
             f"\nROM MEASUREMENT \u2014 ALWAYS estimate the current joint angle in degrees, even if the form is wrong or incomplete:\n"
@@ -76,8 +82,7 @@ class Exercise:
         rom_fields = ""
         if self.rom_targets:
             rom_fields = ", " + ", ".join(
-                f'"{rt.joint}_{rt.movement}_angle": <number or null>'
-                for rt in self.rom_targets
+                f'"{rt.joint}_{rt.movement}_angle": <number or null>' for rt in self.rom_targets
             )
         return (
             f"You are an expert physical therapy coach. Analyze this image of a patient performing: {self.name}.\n"
@@ -94,7 +99,7 @@ class Exercise:
             f'{{"exercise_detected": true/false, "phase": "<one of: {phases_str}>", '
             f'"form_score": <1-10>, "corrections": ["<specific correction>"], '
             f'"rep_boundary": true/false, "feedback": "<clear user-facing coaching message>"'
-            f'{rom_fields}}}\n'
+            f"{rom_fields}}}\n"
             f"\n"
             f'Feedback quality requirements when "exercise_detected" is true:\n'
             f"- Write 2-4 short sentences in plain language.\n"
@@ -262,7 +267,9 @@ EXERCISES: list[Exercise] = [
         rep_start_phase="knee_bent",
         rep_end_phase="lowering",
         rom_targets=[
-            ROMTarget(joint="knee", movement="extension", side="right", target_angle=0, min_angle=90),
+            ROMTarget(
+                joint="knee", movement="extension", side="right", target_angle=0, min_angle=90
+            ),
         ],
         primary_joint=("left_hip", "left_knee", "left_ankle"),
         rep_down_threshold=100,
@@ -439,7 +446,15 @@ EXERCISES: list[Exercise] = [
             "Forcing past comfortable range",
             "Holding breath",
         ],
-        phases=["center", "turning_right", "right", "returning_center", "turning_left", "left", "returning_center_2"],
+        phases=[
+            "center",
+            "turning_right",
+            "right",
+            "returning_center",
+            "turning_left",
+            "left",
+            "returning_center_2",
+        ],
         rep_start_phase="center",
         rep_end_phase="returning_center_2",
         rom_targets=[
