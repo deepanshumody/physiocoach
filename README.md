@@ -208,8 +208,8 @@ For exercises where front and side views both matter:
 
 ## Team & Contributions
 
-Built by **Deepanshu Mody, Anagha Palandye, Taruni Nugooru** — NYU Center for Data Science — at the Dell × NVIDIA Hackathon, February 2026.
+Built by **Deepanshu Mody**, **Taruni Nugooru**, and **Anagha Palandye** — NYU Center for Data Science — at the Dell × NVIDIA Hackathon, February 2026. It was a close, hands-on collaboration; the rough split:
 
-- **Deepanshu Mody** — Pose-based rep-counting engine (MediaPipe → joint-angle state machine), the exercise library and auto-detect coaching mode, VLM coaching-prompt engineering, the dual-camera WebRTC pipeline, and overall project integration.
-- **Taruni Nugooru** — Range-of-motion (ROM) angle measurement and its on-video / sidebar display, the skeleton overlay, and dual-camera UI.
-- **Anagha Palandye** — Exercise research and clinical form criteria, testing, and demo.
+- **Taruni Nugooru** — The range-of-motion (ROM) system end to end: per-exercise joint auto-detection, live on-video and sidebar angle readouts with patient-friendly "degrees-to-go" guidance, the MediaPipe skeleton overlay, active-arm auto-detection for upper-body exercises, and the responsive coaching UI.
+- **Anagha Palandye** — Clinical and exercise design: the physical-therapy exercise library (form criteria, common mistakes, and target ROM angles for every exercise), coaching-feedback UX, cross-exercise testing, and the demo and final presentation.
+- **Deepanshu Mody** — Real-time pipeline and integration: the pose-based rep-counting engine, the dual-camera WebRTC relay, VLM coaching-prompt engineering, and tying the components together.
