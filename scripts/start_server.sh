@@ -2,6 +2,8 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
+# Modifications copyright (c) 2026 PhysioCoach team.
+#
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
@@ -14,39 +16,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Start Live VLM WebUI Server with HTTPS
+# Start the PhysioCoach server with HTTPS
 
 # Get script directory and navigate to project root
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR/.."
-
-# Detect Jetson and recommend Docker
-if [ -f /etc/nv_tegra_release ]; then
-    echo "⚠️  Jetson platform detected!"
-    echo ""
-    echo "📦 We STRONGLY recommend using Docker for Jetson:"
-    echo "   ./scripts/start_container.sh"
-    echo ""
-    echo "Why Docker?"
-    echo "  ✅ No system package dependencies"
-    echo "  ✅ Works out-of-the-box"
-    echo "  ✅ Production-ready"
-    echo "  ✅ Isolated from JetPack"
-    echo ""
-    echo "Local Python on Jetson requires:"
-    echo "  • sudo apt install python3-venv (or python3.10-venv)"
-    echo "  • pip upgrade to support modern packaging"
-    echo "  • May conflict with JetPack packages"
-    echo ""
-    read -p "Continue with local Python anyway? (y/N): " -n 1 -r
-    echo
-    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-        echo "👍 Good choice! Run: ./scripts/start_container.sh"
-        exit 0
-    fi
-    echo "⚠️  Proceeding with local Python setup..."
-    echo ""
-fi
 
 # Detect and activate virtual environment if needed
 DETECTED_VENV=""
@@ -71,7 +45,7 @@ if [ -z "$VIRTUAL_ENV" ] && [ -z "$CONDA_DEFAULT_ENV" ]; then
         echo "  pip install -e ."
         echo ""
         echo "Or activate your conda environment:"
-        echo "  conda activate live-vlm-webui"
+        echo "  conda activate physiocoach"
         exit 1
     fi
 fi
@@ -153,7 +127,7 @@ fi
 # Method 2: Check for Docker containers (if method 1 says port is in use)
 DOCKER_CONTAINER=""
 if [ "$PORT_IN_USE" = true ] && command -v docker &> /dev/null; then
-    DOCKER_CONTAINER=$(docker ps --filter "name=live-vlm-webui" --format "{{.Names}}" 2>/dev/null | head -1)
+    DOCKER_CONTAINER=$(docker ps --filter "name=physiocoach" --format "{{.Names}}" 2>/dev/null | head -1)
 fi
 
 if [ "$PORT_IN_USE" = true ]; then
@@ -202,9 +176,8 @@ if [ "$PORT_IN_USE" = true ]; then
 fi
 
 # Start server with HTTPS
-echo "Starting Live VLM WebUI server..."
+echo "Starting PhysioCoach server..."
 echo "Auto-detecting local VLM services (Ollama, vLLM, SGLang)..."
-echo "Will fall back to NVIDIA API Catalog if none found"
 echo ""
 echo "⚠️  Your browser will show a security warning (self-signed certificate)"
 echo "    Click 'Advanced' → 'Proceed to localhost' (or 'Accept Risk')"

@@ -23,7 +23,7 @@ openssl req -x509 -newkey rsa:4096 -nodes \
   -keyout key.pem \
   -days 365 \
   -subj "/C=US/ST=State/L=City/O=Organization/CN=localhost" \
-  -addext "subjectAltName=DNS:localhost,IP:127.0.0.1,IP:10.110.51.105"
+  -addext "subjectAltName=DNS:localhost,IP:127.0.0.1"
 
 echo "✓ Certificate generated!"
 echo "  - cert.pem (certificate)"

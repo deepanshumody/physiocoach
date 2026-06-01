@@ -84,7 +84,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 echo -e "${BLUE}════════════════════════════════════════════${NC}"
-echo -e "${BLUE}   Live VLM WebUI - Test Runner${NC}"
+echo -e "${BLUE}   PhysioCoach - Test Runner${NC}"
 echo -e "${BLUE}════════════════════════════════════════════${NC}"
 echo ""
 

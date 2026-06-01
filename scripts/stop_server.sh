@@ -14,9 +14,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Stop Live VLM WebUI Server
+# Stop the PhysioCoach server
 
-echo "Stopping Live VLM WebUI server..."
+echo "Stopping PhysioCoach server..."
 pkill -f "live_vlm_webui.server"
 
 # Wait a moment
