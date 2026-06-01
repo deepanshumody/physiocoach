@@ -1,5 +1,9 @@
 # PhysioCoach 🏋️
 
+[![Tests](https://github.com/deepanshumody/physiocoach/actions/workflows/tests.yml/badge.svg)](https://github.com/deepanshumody/physiocoach/actions/workflows/tests.yml)
+[![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
+[![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE)
+
 **Real-time AI physical therapy coaching powered by Vision Language Models and MediaPipe — fully local, no cloud required.**
 
 PhysioCoach watches you exercise through your webcam, analyzes your form using a local VLM, counts your reps using pose estimation, and speaks coaching cues aloud in real time. Everything runs on-device.
