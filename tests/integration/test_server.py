@@ -89,22 +89,21 @@ class TestStaticFiles(AioHTTPTestCase):
         # Get the HTML content
         html = await resp.text()
 
-        # Check that it references expected assets
-        # This catches if HTML references images that don't exist
-        assert "<img" in html or "background-image" in html, "No images found in HTML"
+        # The PhysioCoach UI is icon-font based (Lucide) with an SVG favicon and
+        # has no <img> tags; verify the app shell actually rendered.
+        assert "PhysioCoach" in html, "Index page did not render the PhysioCoach app"
 
-        # Parse and verify all image sources exist
+        # Any locally-referenced asset (src=...) must actually resolve (no 404s).
         import re
 
-        img_srcs = re.findall(r'src=["\']([^"\']+)["\']', html)
+        srcs = re.findall(r'src=["\']([^"\']+)["\']', html)
 
-        for src in img_srcs:
+        for src in srcs:
             if src.startswith("http"):
-                continue  # Skip external URLs
+                continue  # Skip external URLs (e.g. CDN scripts)
 
-            # Test each image reference
             resp = await self.client.request("GET", src)
-            assert resp.status == 200, f"Image referenced in HTML but missing: {src}"
+            assert resp.status == 200, f"Asset referenced in HTML but missing: {src}"
 
     async def test_no_404_on_common_paths(self):
         """Test that common paths don't return 404."""
