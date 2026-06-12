@@ -10,12 +10,6 @@ PhysioCoach watches you exercise through your webcam, analyzes your form using a
 
 Built at the **Dell × NVIDIA Hackathon 2026** by NYU students. Reached **Top-8** out of 30 teams from NYU CDS.
 
-## Demo
-
-![PhysioCoach Demo](demo.gif)
-
----
-
 ## Built on NVIDIA's Live VLM WebUI
 
 PhysioCoach is built on top of NVIDIA's open-source **[Live VLM WebUI](https://github.com/nvidia-ai-iot/live-vlm-webui)** (Apache-2.0). That project provides the foundation we started from:
